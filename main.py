@@ -1,26 +1,15 @@
-
-
-
-from app.web_search import search_web, scrape_pages
-from app.summarize import ask_llm
+from app.agent.unified_agent import create_unified_agent
 
 def main():
-    print("어떤 주제를 리서치하시겠습니까?")
-    topic = input("> ")
+    agent = create_unified_agent()
 
-    print("\n[1/3] 웹에서 자료 수집 중 (Search)...")
-    urls = search_web(topic)
-    print(f"  - 검색된 URL 개수: {len(urls)}")
+    print("무엇을 도와드릴까요? (계산, 날씨, 딥리서치 가능)")
+    user_input = input("> ")
 
-    print("\n[2/3] 웹페이지 스크랩 중 (Scrape)...")
-    docs = scrape_pages(urls)
-    print(f"  - 스크랩 성공 문서 개수: {len(docs)}")
+    result = agent.invoke({"input": user_input})
 
-    print("\n[3/3] 보고서 생성 중 (LLM)...")
-    report = ask_llm(topic, docs)
-
-    print("\n=== 생성된 리서치 보고서 ===\n")
-    print(report)
+    print("\n=== 에이전트 응답 ===")
+    print(result["output"])
 
 
 if __name__ == "__main__":

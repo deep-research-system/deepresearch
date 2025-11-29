@@ -29,8 +29,6 @@ if not GROQ_API_KEY:
     print("GROQ_API_KEY 환경변수가 설정되어 있지 않습니다.")
 if not FIRECRAWL_API_KEY:
     print("FIRECRAWL_API_KEY 환경변수가 설정되어 있지 않습니다.")
-if not LANGCHAIN_API_KEY:
-    print("LANGCHAIN_API_KEY 환경변수가 설정되어 있지 않습니다.")
 
 # Groq LLM, Firecrawl 클라이언트
 client = Groq(api_key=GROQ_API_KEY)
