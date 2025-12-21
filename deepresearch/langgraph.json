@@ -1,0 +1,12 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "deep_research": "./src/graph.py:build_graph"
+  },
+  "env": ".env",
+  "store": {
+    "ttl": {
+      "default_ttl": 86400
+    }
+  }
+}

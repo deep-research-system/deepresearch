@@ -1,20 +1,62 @@
+############################
 # Python
+############################
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 
-# Virtualenv
+############################
+# Python tooling / caches
+############################
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.egg-info/
+pip-wheel-metadata/
+dist/
+build/
+
+############################
+# Virtualenv / Env
+############################
 .venv/
 venv/
 env/
-
-# Environment variables
 .env
+.env.*
+!.env.example
 
-# OS / Editor
-.vscode/
-.DS_Store
+############################
+# Node / Next.js (Frontend)
+############################
+node_modules/
+.next/
+out/
+dist/
+build/
+.turbo/
+.swc/
 
+############################
+# LangGraph / LangChain runtime
+############################
+.langgraph_api/
+.langgraph/
+.langgraph_cache/
+
+############################
 # Logs / Cache
+############################
 *.log
-.pytest_cache/
+
+############################
+# OS / Editor
+############################
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
