@@ -8,6 +8,9 @@ import { MessageList } from "@/components/message-list"
 import { ChatInput } from "@/components/chat-input"
 import { createChat, type Agent } from "@/lib/chat-store"
 
+// 새채팅 생성/이동 페이지
+
+
 export default function HomePage() {
   const [agent, setAgent] = useState<Agent>("General")
   const router = useRouter()
@@ -16,7 +19,7 @@ export default function HomePage() {
   const handleSend = async (message: string) => {
     const newChat = createChat(agent)
     const userMessage = {
-      id: `msg-${Date.now()}`,
+      id: crypto.randomUUID(),
       role: "user" as const,
       content: message,
       createdAt: Date.now(),
