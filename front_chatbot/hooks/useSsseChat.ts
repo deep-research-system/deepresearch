@@ -2,17 +2,20 @@
 import { useCallback, useRef, useState } from "react";
 import { readSseStream, type SseEvent } from "@/lib/sse";
 
+// 채팅 메시지 타입 정의
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
 };
 
+// 고유 ID 생성 유틸
 function newId() {
   // Date.now()만 쓰면 중복될 수 있으니 UUID 권장
   return crypto.randomUUID();
 }
 
+// SSE 기반 채팅 훅
 export function useSseChat(apiBaseUrl = "http://localhost:8000") {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);

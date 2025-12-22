@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useRef, useState } from "react"
+import { useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { ChatHeader } from "@/components/chat-header"
 import { MessageList } from "@/components/message-list"
@@ -9,7 +9,7 @@ import { useChat } from "@/components/chat-provider"
 import type { Agent } from "@/lib/chat-store"
 import { readSseStream } from "@/lib/sse"
 
-// 이벤트를 받아서 메시지로 바꾸는 페이지지
+// 이벤트를 받아서 메시지로 바꾸는 페이지
 
 
 export default function ChatPage() {
@@ -17,7 +17,6 @@ export default function ChatPage() {
   const router = useRouter()
   const { chats, setChats, toggleSidebar } = useChat()
   const [isLoading, setIsLoading] = useState(false)
-  const lastAutoInvokeMessageId = useRef<string | null>(null)
 
 
   const chat = useMemo(() => chats.find((c) => c.id === id), [chats, id])
@@ -131,6 +130,7 @@ export default function ChatPage() {
 
 
   const handleSend = async (message: string) => {
+    if (isLoading) return   // 중복방지
     pushUserMessage(message)
     setIsLoading(true)
   
