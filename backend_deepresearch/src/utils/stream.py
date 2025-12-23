@@ -5,8 +5,12 @@ from typing import Any, Dict, Iterator, Callable, Iterable, Tuple
 
 from fastapi.responses import StreamingResponse
 
-from src.utils.sse import sse
-from src.api.handlers.clarify import handle_clarify
+from src.handler.clarify import handle_clarify
+import json
+
+# Server-Sent Events (SSE) 유틸리티 함수
+def sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 Event = Tuple[str, Dict[str, Any]]  # (event_name, payload)
 Handler = Callable[[Dict[str, Any]], Iterable[Event]]

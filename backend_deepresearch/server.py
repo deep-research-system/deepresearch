@@ -4,9 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from src.graph import build_graph
-from src.state import ResearchState
-from fastapi.responses import StreamingResponse
-from src.api.stream import stream_graph
+from src.utils.stream import stream_graph
 
 app = FastAPI()
 
