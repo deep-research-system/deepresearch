@@ -1,12 +1,11 @@
 # src/api/stream.py
 from __future__ import annotations
-
 from typing import Any, Dict, Iterator, Callable, Iterable, Tuple
-
 from fastapi.responses import StreamingResponse
+import json
 
 from src.handler.clarify import handle_clarify
-import json
+from src.handler.subquery import handle_subquery
 
 # Server-Sent Events (SSE) 유틸리티 함수
 def sse(event: str, data: dict) -> str:
@@ -18,10 +17,7 @@ Handler = Callable[[Dict[str, Any]], Iterable[Event]]
 ## 노드 이름과 핸들러 매핑
 HANDLERS: Dict[str, Handler] = {
     "clarify": handle_clarify,
-    # 노드 추가 시 여기에만 등록하면 됨
-    # "write_research_brief": handle_brief,
-    # "research_supervisor": handle_supervisor,
-    # "final_report_generation": handle_final,
+    "subquery": handle_subquery,
 }
 
 # 스트림 청크 정규화
@@ -56,17 +52,17 @@ def stream_graph(graph, state_in: Dict[str, Any]) -> StreamingResponse:
             for chunk in graph.stream(state_in, stream_mode="updates"):
                 node, update = _normalize_chunk(chunk)
 
-                # 공통: 노드 업데이트(진행상황)
-                yield sse(
-                    "node_update",
-                    {
-                        "node": node,
-                        "update": update,          # 디버깅/로그용
-                        "message": f"[{node}] 처리 중",
-                    },
-                )
+# ✅ assistant_text(타이핑 청크)면 node_update 생략
+                if update.get("type") != "assistant_text":
+                    yield sse(
+                        "node_update",
+                        {
+                            "node": node,
+                            "update": update,
+                            "message": f"[{node}] 처리 중",
+                        },
+                    )
 
-                # 노드별: 필요 시 추가 이벤트(assistant 메시지 등)
                 handler = HANDLERS.get(node)
                 if handler:
                     for event_name, payload in handler(update):
