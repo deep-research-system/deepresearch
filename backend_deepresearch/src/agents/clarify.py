@@ -44,14 +44,33 @@ def run_clarify_llm(human_prompt: str) -> Generator[Event, None, str]:
 
     return "".join(full).strip()
 
+def extract_context_from_qa_blocks(qa_blocks: List[str]) -> Dict[str, str]:
+    context = {}
+    for block in qa_blocks:
+        lines = block.splitlines()
+        for i in range(len(lines) - 1):
+            line_q = lines[i].strip()
+            line_a = lines[i + 1].strip()
+            if line_q.startswith("Q:") and line_a.startswith("A:"):
+                q = line_q[2:].strip()
+                a = line_a[2:].strip()
+                if q and a and not a.lower() in ("", "몰라", "모름", "잘 모르겠어요", "알아서"):
+                    context[q] = a
+    return context
+
 # run_clarify_llm에서 생긴 LLM 답변을 파성 + 추가 질문 완성
 def make_clarify_questions(
     question: str,
     qa_blocks: List[str],
 ) -> Generator[Event, None, Tuple[bool, List[str]]]:
+    context_dict = extract_context_from_qa_blocks(qa_blocks)
+    context_str = "\n".join(f"- {k}: {v}" for k, v in context_dict.items())
+    
     base = f"사용자 질문:\n{question}\n"
     if qa_blocks:
         base += "\n추가 Q/A:\n" + "\n\n".join(qa_blocks) + "\n"
+    if context_dict:
+        base += f"\n\n이미 확보된 정보(context):\n{context_str}\n\n위 항목은 이미 답변 받은 것이므로, 어떤 형태로든 다시 묻지 마라.\n"
 
     for attempt in range(2):
         human = base if attempt == 0 else base + "\n출력 형식을 반드시 지켜라: NO_QUESTION 또는 1) ...? 형식만.\n"
@@ -85,29 +104,30 @@ def judge_clarify_answer(
     question: str,
     clarifying_questions: List[str],
     user_answer_text: str,
-) -> bool:
+) -> Tuple[bool, List[str]]:
     llm = _llm()
+
     human = (
         f"원 질문:\n{question}\n\n"
-        + "추가질문 목록:\n"
+        + "Clarify 질문 목록:\n"
         + "\n".join(f"- {q}" for q in clarifying_questions)
         + "\n\n"
-        + f"사용자 답변(원문 그대로):\n{user_answer_text}"
+        + f"사용자 답변:\n{user_answer_text}"
     )
 
-    resp = llm.invoke(
-        [
-            SystemMessage(content=judge_clarify_answers_prompt),
-            HumanMessage(content=human),
-        ]
-    )
+    resp = llm.invoke([
+        SystemMessage(content=judge_clarify_answers_prompt),
+        HumanMessage(content=human),
+    ])
 
     t = (getattr(resp, "content", "") or "").strip()
     try:
         obj = json.loads(t)
-        return bool(obj.get("answers_sufficient", False))
+        ok = bool(obj.get("answers_sufficient", False))
+        followups = obj.get("unanswered_questions", [])
+        return ok, followups
     except Exception:
-        return False
+        return False, clarifying_questions  # fallback: 전부 불충분 처리
 
 
 def build_final_question(
@@ -115,8 +135,13 @@ def build_final_question(
     qa_blocks: List[str],
 ) -> str:
     llm = _llm()
+
+    context_dict = extract_context_from_qa_blocks(qa_blocks)
+    context_str = "\n".join(f"- {k}: {v}" for k, v in context_dict.items())
     human = f"원 질문:\n{question}\n\n"
     human += "추가 Q/A:\n" + "\n\n".join(qa_blocks) if qa_blocks else "추가 Q/A: 없음"
+    if context_dict:
+        human += f"\n\n※ 아래 정보는 이미 사용자로부터 확인된 항목이므로, 반드시 그대로 반영해야 한다:\n{context_str}"
 
     resp = llm.invoke(
         [
@@ -171,7 +196,7 @@ def clarify(state: ResearchState) -> Generator[Event, None, None]:
                 + f"A: {user_answer_text}"
             )
 
-        ok = judge_clarify_answer(
+        ok, followups = judge_clarify_answer(
             state.question,
             state.clarifying_questions,
             user_answer_text,
@@ -181,11 +206,11 @@ def clarify(state: ResearchState) -> Generator[Event, None, None]:
             if cur_block:
                 _append_qa(cur_block)
                 qa_blocks = qa_blocks + [cur_block]
-            need, qs = yield from make_clarify_questions(state.question, qa_blocks)
-            state.need_clarification = True
-            state.clarifying_questions = qs
-            state.clarifying_answers = []
-            yield {"need_clarification": True, "clarifying_questions": qs}
+            if followups:
+                state.need_clarification = True
+                state.clarifying_questions = followups
+                state.clarifying_answers = []
+                yield {"need_clarification": True, "clarifying_questions": followups}
             return
 
         if cur_block:
