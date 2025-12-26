@@ -1,3 +1,4 @@
+// app/chat/[id]/page.tsx
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -24,7 +25,7 @@ function parseClarifyAnswers(text: string, n: number): string[] {
   // 1) 번호형 파싱: "1) ...", "1. ...", "1: ..."
   let cur = -1
   for (const line of lines) {
-    const m = line.match(/^\s*(\d+)\s*[\).:]\s*(.*)$/)
+    const m = line.match(/^\s*(\d+)\s*[).:]\s*(.*)$/)
     if (m) {
       const idx = Math.max(0, Math.min(n - 1, Number(m[1]) - 1))
       cur = idx
@@ -120,6 +121,12 @@ export default function ChatPage() {
   // 개발모드 StrictMode에서 useEffect 2회 호출 방지
   const autoSentRef = useRef(false)
 
+  // "~~중..." 상태 전용 말풍선(임시)
+  const statusMessageIdRef = useRef<string | null>(null)
+
+  // end에서 status를 지울지 여부(오류는 남기기)
+  const statusStickyRef = useRef(false)
+
   const releaseSendLock = () => {
     sendingRef.current = false
     setIsLoading(false)
@@ -182,6 +189,38 @@ export default function ChatPage() {
     )
   }
 
+  const removeMessage = (messageId: string) => {
+    setChats((prev) =>
+      prev.map((c) => {
+        if (c.id !== id) return c
+        return {
+          ...c,
+          messages: c.messages.filter((m) => m.id !== messageId),
+          updatedAt: Date.now(),
+        }
+      }),
+    )
+  }
+
+  const ensureStatusMessage = (text: string) => {
+    const mid = statusMessageIdRef.current
+    if (!mid) {
+      const id = appendMessage("assistant", text)
+      statusMessageIdRef.current = id
+      return id
+    }
+    replaceMessageContent(mid, text)
+    return mid
+  }
+
+  const clearStatusMessage = () => {
+    const mid = statusMessageIdRef.current
+    if (mid) {
+      removeMessage(mid)
+      statusMessageIdRef.current = null
+    }
+  }
+
   const ensureTypingPlaceholder = () => {
     if (streamingAssistantIdRef.current) return streamingAssistantIdRef.current
     const mid = appendMessage("assistant", "…")
@@ -240,7 +279,18 @@ export default function ChatPage() {
     streamingAssistantIdRef.current = null
     currentNodeRef.current = null
 
-    const placeholderId = ensureTypingPlaceholder()
+    // 새 스트림 시작 시: status는 기본적으로 end에서 제거되는 진행 표시
+    statusStickyRef.current = false
+
+    // 상태 말풍선 초기화
+    clearStatusMessage()
+
+    const initialMessage =
+      clarifying_questions && clarifying_questions.length > 0
+        ? "추가답변 분석중..."
+        : "질문분석중..."
+    ensureStatusMessage(initialMessage)
+
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 
     const res = await fetch(API_URL, {
@@ -255,7 +305,9 @@ export default function ChatPage() {
     })
 
     if (!res.ok) {
-      replaceMessageContent(placeholderId, `서버 오류 (HTTP ${res.status})`)
+      // 서버 오류는 사용자에게 남겨두는 편이 좋아서 sticky 처리
+      statusStickyRef.current = true
+      ensureStatusMessage(`서버 오류 (HTTP ${res.status})`)
       releaseSendLock()
       return
     }
@@ -266,11 +318,8 @@ export default function ChatPage() {
           break
 
         case "node_update": {
-          const node = evt.data?.node
-          if (node && node !== currentNodeRef.current) {
-            currentNodeRef.current = node
-            streamingAssistantIdRef.current = null
-          }
+          const msg = evt.data?.message || ""
+          if (msg) ensureStatusMessage(String(msg))
           break
         }
 
@@ -278,6 +327,10 @@ export default function ChatPage() {
           const t = evt.data?.type
 
           if (t === "assistant_text" && evt.data?.content) {
+            const sid = ensureTypingPlaceholder()
+            // 토큰이 나오기 시작하면 진행 상태 말풍선은 제거
+            clearStatusMessage()
+            streamingAssistantIdRef.current = sid
             appendAssistantDelta(String(evt.data.content))
             break
           }
@@ -286,33 +339,42 @@ export default function ChatPage() {
             const qs: string[] = evt.data?.questions ?? []
             setPendingClarify({ originalQuestion: question, questions: qs })
 
-            // ✅ 여기서 "추가 질문:" 대신 안정 랜덤 안내문 + 리스트
             const text = formatClarifyQuestions(qs, String(id))
-            const sid = streamingAssistantIdRef.current ?? placeholderId
-            replaceMessageContent(sid, text)
+
+            // 중요: 추가질문은 "status 말풍선"이 아니라 "assistant 메시지"로 남긴다
+            clearStatusMessage()
+            appendMessage("assistant", text)
 
             streamingAssistantIdRef.current = null
             releaseSendLock()
             break
           }
 
-          if (t === "final_question" && evt.data?.content) {
-            const text = "최종 질문(임시):\n" + String(evt.data.content)
-            const sid = streamingAssistantIdRef.current ?? placeholderId
-            replaceMessageContent(sid, text)
+          if (t === "final_question") {
+            const questionText: string = String(evt.data?.question ?? evt.data?.content ?? "")
             streamingAssistantIdRef.current = null
+
+            clearStatusMessage()
+
+            if (questionText) {
+              appendMessage("assistant", questionText)
+            }
+
+            // 다음 단계 진행 표시
+            ensureStatusMessage("서브쿼리 생성중...")
             break
           }
 
           if (t === "subqueries_done") {
-            const qs: string[] = evt.data?.sub_queries ?? []
-            const text = "서브쿼리(임시):\n" + qs.map((q) => `- ${q}`).join("\n")
-
-            const sid = streamingAssistantIdRef.current
-            if (sid) replaceMessageContent(sid, text)
-            else appendMessage("assistant", text)
-
+            const list: string[] = evt.data?.sub_queries ?? []
             streamingAssistantIdRef.current = null
+
+            if (Array.isArray(list) && list.length > 0) {
+              const text = list.map((q: string, i: number) => `${i + 1}. ${q}`).join("\n")
+              appendMessage("assistant", text)
+            }
+
+            clearStatusMessage()
             break
           }
 
@@ -323,16 +385,20 @@ export default function ChatPage() {
         }
 
         case "error": {
+          // error는 사용자에게 남기는 게 유리
+          statusStickyRef.current = true
           const msg = evt.data?.message ?? "알 수 없는 오류"
-          const sid = streamingAssistantIdRef.current ?? placeholderId
-          replaceMessageContent(sid, `오류: ${msg}`)
+          ensureStatusMessage(`오류: ${msg}`)
           releaseSendLock()
           break
         }
 
-        case "end":
+        case "end": {
+          // 진행중(status)만 정리하고, 오류(statusSticky)는 남긴다
+          if (!statusStickyRef.current) clearStatusMessage()
           releaseSendLock()
           break
+        }
       }
     })
   }
@@ -347,7 +413,6 @@ export default function ChatPage() {
     sendingRef.current = true
     setIsLoading(true)
 
-    // 추가질문 답변 단계
     if (pendingClarify) {
       const pc = pendingClarify
       setPendingClarify(null)
@@ -368,7 +433,6 @@ export default function ChatPage() {
       return
     }
 
-    // 일반 질문 단계
     const userMsg = pushUserMessage(trimmed)
     const messagesForRequest = [...chat.messages, userMsg].map((m) => ({
       role: m.role,
@@ -388,7 +452,6 @@ export default function ChatPage() {
     )
   }
 
-  // ✅ New Chat에서 저장한 pending-message를 chat/[id] 진입 즉시 자동 전송
   useEffect(() => {
     if (!chat) return
     if (autoSentRef.current) return
@@ -398,7 +461,7 @@ export default function ChatPage() {
 
     try {
       pending = (localStorage.getItem(key) ?? "").trim()
-      if (pending) localStorage.removeItem(key) // 먼저 삭제(StrictMode 2회 방지)
+      if (pending) localStorage.removeItem(key)
     } catch {
       return
     }
@@ -406,7 +469,6 @@ export default function ChatPage() {
     if (!pending) return
     autoSentRef.current = true
 
-    // 혹시 이전 로직으로 userMessage가 이미 들어가있던 경우 방어
     const exists = chat.messages.some(
       (m) => m.role === "user" && String(m.content ?? "").trim() === pending,
     )

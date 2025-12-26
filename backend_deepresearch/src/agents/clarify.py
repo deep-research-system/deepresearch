@@ -1,104 +1,213 @@
 from __future__ import annotations
 
+import json
 import re
-from typing import List
+from typing import Any, Dict, Generator, List, Tuple
 
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from configuration import settings
-from src.prompts.prompts import clarify_question_prompt, finalize_question_prompt
+from src.prompts.prompts import (
+    clarify_question_prompt,
+    judge_clarify_answers_prompt,
+    finalize_question_prompt,
+)
 from src.state import ResearchState
 
-_Q_RE = re.compile(r"\s*(?:\d+)[.)]\s*(.+)")
+Event = Dict[str, Any]
 _NOQ = "NO_QUESTION"
+_Q_LINE_RE = re.compile(r"^\s*(\d+)[.)]\s*(.+?)\s*$")
 
 
 def _llm():
-    return init_chat_model(settings.llm_model, api_key=settings.openai_api_key)
+    return init_chat_model(
+        settings.llm_model,
+        api_key=settings.openai_api_key,
+        temperature=settings.temperature,
+    )
+
+# 첫 질문에 대한 LLM 실행 (파싱 안되어있음)
+def run_clarify_llm(human_prompt: str) -> Generator[Event, None, str]:
+    llm = _llm()
+    full: List[str] = []
 
 
-def _parse_questions(text: str) -> List[str]:
-    t = text.strip()
-    if t == _NOQ:
-        return []
-    qs: List[str] = []
-    for line in t.splitlines():
-        m = _Q_RE.match(line)
-        if m:
-            q = m.group(1).strip()
-            if q.endswith("?") and q:
-                qs.append(q)
-    return qs[:3]
+    for chunk in llm.stream(
+        [SystemMessage(content=clarify_question_prompt), HumanMessage(content=human_prompt)]
+    ):
+        c = getattr(chunk, "content", "") or ""
+        if not c:
+            continue
+        full.append(c)
+        yield {"type": "assistant_text", "content": c}
+
+    return "".join(full).strip()
+
+# run_clarify_llm에서 생긴 LLM 답변을 파성 + 추가 질문 완성
+def make_clarify_questions(
+    question: str,
+    qa_blocks: List[str],
+) -> Generator[Event, None, Tuple[bool, List[str]]]:
+    base = f"사용자 질문:\n{question}\n"
+    if qa_blocks:
+        base += "\n추가 Q/A:\n" + "\n\n".join(qa_blocks) + "\n"
+
+    for attempt in range(2):
+        human = base if attempt == 0 else base + "\n출력 형식을 반드시 지켜라: NO_QUESTION 또는 1) ...? 형식만.\n"
+        raw = (yield from run_clarify_llm(human)).strip()
+
+        if raw == _NOQ:
+            if len(question.strip()) < 8 and attempt == 0:
+                base += "\n입력이 매우 짧고 추상적이다. 리서치가 흔들리지 않도록 필수 정보만 묻는 추가 질문을 만들어라.\n"
+                continue
+            return (False, [])
+
+        qs: List[str] = []
+        for line in raw.splitlines():
+            m = _Q_LINE_RE.match(line)
+            if not m:
+                continue
+            q = m.group(2).strip()
+            if not q:
+                continue
+            if not q.endswith("?"):
+                q = q.rstrip(".") + "?"
+            qs.append(q)
+
+        if qs:
+            return (True, qs[:5])
+
+    return (False, [])
+
+# 추가질문에 대한 답변 충분함 확인
+def judge_clarify_answer(
+    question: str,
+    clarifying_questions: List[str],
+    user_answer_text: str,
+) -> bool:
+    llm = _llm()
+    human = (
+        f"원 질문:\n{question}\n\n"
+        + "추가질문 목록:\n"
+        + "\n".join(f"- {q}" for q in clarifying_questions)
+        + "\n\n"
+        + f"사용자 답변(원문 그대로):\n{user_answer_text}"
+    )
+
+    resp = llm.invoke(
+        [
+            SystemMessage(content=judge_clarify_answers_prompt),
+            HumanMessage(content=human),
+        ]
+    )
+
+    t = (getattr(resp, "content", "") or "").strip()
+    try:
+        obj = json.loads(t)
+        return bool(obj.get("answers_sufficient", False))
+    except Exception:
+        return False
 
 
-def clarify(state: ResearchState):
-    if state.final_question:
-        yield {
-            "need_clarification": False,
-            "final_question": state.final_question,
-            "clarifying_questions": state.clarifying_questions,
-        }
+def build_final_question(
+    question: str,
+    qa_blocks: List[str],
+) -> str:
+    llm = _llm()
+    human = f"원 질문:\n{question}\n\n"
+    human += "추가 Q/A:\n" + "\n\n".join(qa_blocks) if qa_blocks else "추가 Q/A: 없음"
+
+    resp = llm.invoke(
+        [
+            SystemMessage(content=finalize_question_prompt),
+            HumanMessage(content=human),
+        ]
+    )
+
+    t = (getattr(resp, "content", "") or "").strip()
+    if not t:
+        return ""
+
+    try:
+        obj = json.loads(t)
+        fq = obj.get("final_question")
+        return fq.strip() if isinstance(fq, str) and fq.strip() else t
+    except Exception:
+        return t
+
+
+def clarify(state: ResearchState) -> Generator[Event, None, None]:
+    if getattr(state, "final_question", None):
+        state.need_clarification = False
+        yield {"need_clarification": False, "final_question": state.final_question}
         return
+
+    msgs = getattr(state, "messages", None) or []
+    qa_blocks = [
+        str(m.get("content", "")).strip()
+        for m in msgs
+        if isinstance(m, dict) and m.get("type") == "clarify_qa" and str(m.get("content", "")).strip()
+    ]
+
+    def _append_qa(block: str):
+        if not block:
+            return
+        if getattr(state, "messages", None) is None:
+            state.messages = []
+        if state.messages and isinstance(state.messages[-1], dict) and state.messages[-1].get("type") == "clarify_qa":
+            if state.messages[-1].get("content") == block:
+                return
+        state.messages.append({"type": "clarify_qa", "content": block})
 
     if state.clarifying_questions and state.clarifying_answers:
-        buf: List[str] = []
-        for chunk in _llm().stream(
-            [
-                SystemMessage(content=finalize_question_prompt),
-                HumanMessage(
-                    content=(
-                        "원 질문:\n"
-                        f"{state.question}\n\n"
-                        "추가 Q/A:\n"
-                        + "\n".join(
-                            f"Q: {q}\nA: {a}"
-                            for q, a in zip(state.clarifying_questions, state.clarifying_answers)
-                        )
-                    )
-                ),
-            ]
-        ):
-            if chunk.content:
-                buf.append(chunk.content)
-                yield {"type": "assistant_text", "content": chunk.content}
+        user_answer_text = "\n".join(state.clarifying_answers).strip()
+        cur_block = ""
+        if user_answer_text:
+            cur_block = (
+                "Q/A:\n"
+                + "\n".join(f"Q: {q}" for q in state.clarifying_questions)
+                + "\n"
+                + f"A: {user_answer_text}"
+            )
 
+        ok = judge_clarify_answer(
+            state.question,
+            state.clarifying_questions,
+            user_answer_text,
+        )
+
+        if not ok:
+            if cur_block:
+                _append_qa(cur_block)
+                qa_blocks = qa_blocks + [cur_block]
+            need, qs = yield from make_clarify_questions(state.question, qa_blocks)
+            state.need_clarification = True
+            state.clarifying_questions = qs
+            state.clarifying_answers = []
+            yield {"need_clarification": True, "clarifying_questions": qs}
+            return
+
+        if cur_block:
+            _append_qa(cur_block)
+            qa_blocks = qa_blocks + [cur_block]
+
+        fq = build_final_question(state.question, qa_blocks) or state.question
+        state.final_question = fq
         state.need_clarification = False
-        state.final_question = "".join(buf).strip() or state.question
-
-        yield {
-            "need_clarification": False,
-            "final_question": state.final_question,
-            "clarifying_questions": state.clarifying_questions,
-        }
+        yield {"need_clarification": False, "final_question": fq}
         return
 
-    buf: List[str] = []
-    for chunk in _llm().stream(
-        [
-            SystemMessage(content=clarify_question_prompt),
-            HumanMessage(content=f"사용자 질문:\n{state.question}"),
-        ]
-    ):
-        if chunk.content:
-            buf.append(chunk.content)
-            yield {"type": "assistant_text", "content": chunk.content}
+    need, qs = yield from make_clarify_questions(state.question, qa_blocks)
 
-    full = "".join(buf)
-    qs = _parse_questions(full)
+    if not need:
+        fq = build_final_question(state.question, qa_blocks) or state.question
+        state.final_question = fq
+        state.need_clarification = False
+        yield {"need_clarification": False, "final_question": fq}
+        return
 
+    state.need_clarification = True
     state.clarifying_questions = qs
-    state.need_clarification = bool(qs)
-
-    if not qs:
-        state.final_question = state.question
-        yield {
-            "need_clarification": False,
-            "final_question": state.final_question,
-            "clarifying_questions": [],
-        }
-    else:
-        yield {
-            "need_clarification": True,
-            "clarifying_questions": qs,
-        }
+    state.clarifying_answers = []
+    yield {"need_clarification": True, "clarifying_questions": qs}
