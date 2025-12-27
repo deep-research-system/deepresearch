@@ -8,6 +8,7 @@ class ResearchState:
     messages: list[dict[str, Any]] = field(default_factory=list)
 
     # 질문분석agent에서 다루는 필드 (clarify)
+    assistant_text: str = ""
     need_clarification: bool = False
     clarifying_questions: list[str] = field(default_factory=list)
     clarifying_answers: list[str] = field(default_factory=list)

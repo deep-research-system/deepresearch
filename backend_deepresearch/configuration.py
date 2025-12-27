@@ -18,7 +18,7 @@ class Settings:
             llm_model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
             tavily_api_key=os.getenv("TAVILY_API_KEY"),
             temperature=0.2,
-            max_subqueries=10,
+            max_subqueries=3,
         )
 
 settings = Settings.load()
