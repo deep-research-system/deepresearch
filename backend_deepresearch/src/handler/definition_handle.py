@@ -11,14 +11,12 @@ def handle_node_update(node: str, update: Dict[str, Any]) -> Iterable[Event]:
                 yield ("llm", {"type": "error_messages", "content": error_messages})
             return
 
-
         # 2. 추가질문 할필요 없음 —> 최종 검색어
         if update.get("need_addition_questions") is False:
             final_question = update.get("final_question")
             if final_question:
                 yield ("llm", {"type": "final_question", "question": final_question})
             return
-
 
         # 1) 추가질문 할필요 있음 —> 안내 멘트 + 추가질문 리스트
         if update.get("need_addition_questions") is True:

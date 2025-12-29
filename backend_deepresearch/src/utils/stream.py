@@ -14,11 +14,6 @@ def sse(event: str, data: Dict[str, Any]) -> str:
 
 
 def _normalize_chunk(chunk: Any) -> tuple[str, Dict[str, Any]]:
-    """
-    LangGraph stream_mode="updates" 결과는 보통:
-      {"node_name": {...update...}}
-    형태이므로 이를 (node, update)로 정규화.
-    """
     if not isinstance(chunk, dict) or not chunk:
         return "unknown", {"raw": chunk}
 
@@ -32,8 +27,7 @@ def _normalize_chunk(chunk: Any) -> tuple[str, Dict[str, Any]]:
 
 def _status_message_for(node: str, update: Dict[str, Any]) -> str:
     """
-    프론트 상단 상태표시용.
-    handler.py의 clarify update 키들을 기준으로 간단히 구성.
+    ~~중... 표시
     """
     if node == "clarify":
         if "error_messages" in update:
@@ -49,11 +43,6 @@ def _status_message_for(node: str, update: Dict[str, Any]) -> str:
 
 
 def start_graph(graph: Any, state: Dict[str, Any]) -> StreamingResponse:
-    """
-    graph.stream(...)의 updates를 SSE로 전달.
-    - node_update: 상태 메시지
-    - handle_node_update(node, update): 실제 페이로드 이벤트들
-    """
     def event_generator() -> Iterator[str]:
         try:
             yield sse("start", {"message": "딥리서치 시작"})
