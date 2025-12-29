@@ -1,7 +1,6 @@
-from __future__ import annotations
-
-from typing import Any, Dict, Iterator, Tuple
+# src/api/stream.py
 import json
+from typing import Any, Dict, Iterator, Tuple
 
 from fastapi.responses import StreamingResponse
 
@@ -10,46 +9,62 @@ from src.handler.definition_handle import handle_node_update
 Event = Tuple[str, Dict[str, Any]]  # (event_name, payload)
 
 
-def sse(event: str, data: dict) -> str:
+def sse(event: str, data: Dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def _normalize_chunk(chunk: Dict[str, Any]) -> tuple[str, Dict[str, Any]]:
+def _normalize_chunk(chunk: Any) -> tuple[str, Dict[str, Any]]:
     """
-    LangGraph stream_mode="updates" 결과는 보통 {"node_name": {...update...}} 형태.
+    LangGraph stream_mode="updates" 결과는 보통:
+      {"node_name": {...update...}}
+    형태이므로 이를 (node, update)로 정규화.
     """
     if not isinstance(chunk, dict) or not chunk:
         return "unknown", {"raw": chunk}
 
     node = next(iter(chunk.keys()))
-    update = chunk.get(node) or {}
-    if not isinstance(update, dict):
-        update = {"raw": update}
-    return node, update
+    update = chunk.get(node)
+
+    if isinstance(update, dict):
+        return node, update
+    return node, {"raw": update}
 
 
-def _status_message_for(node: str, state_in: Dict[str, Any]) -> str:
+def _status_message_for(node: str, update: Dict[str, Any]) -> str:
+    """
+    프론트 상단 상태표시용.
+    handler.py의 clarify update 키들을 기준으로 간단히 구성.
+    """
     if node == "clarify":
-        if state_in.get("clarifying_answers"):
-            return "최종 질문 생성중..."
-        return "질문분석중..."
-    if node == "subquery":
-        return "서브쿼리 생성중..."
+        if "error_messages" in update:
+            return "입력값 검증중..."
+        if update.get("need_addition_questions") is True:
+            return "추가 질문 생성중..."
+        if update.get("need_addition_questions") is False:
+            return "최종 질문 확정중..."
+        return "질문 분석중..."
+
+    # 필요하면 노드별 메시지를 여기서 확장
     return f"{node} 처리중..."
 
 
-def stream_graph(graph, state_in: Dict[str, Any]) -> StreamingResponse:
+def start_graph(graph: Any, state: Dict[str, Any]) -> StreamingResponse:
+    """
+    graph.stream(...)의 updates를 SSE로 전달.
+    - node_update: 상태 메시지
+    - handle_node_update(node, update): 실제 페이로드 이벤트들
+    """
     def event_generator() -> Iterator[str]:
         try:
             yield sse("start", {"message": "딥리서치 시작"})
 
-            for chunk in graph.stream(state_in, stream_mode="updates"):
+            for chunk in graph.stream(state, stream_mode="updates"):
                 node, update = _normalize_chunk(chunk)
 
-                # clarify의 assistant_text 스트리밍 중에는 상태 메시지 섞이지 않게 억제
-                if not (node == "clarify" and "assistant_text" in update):
-                    yield sse("node_update", {"message": _status_message_for(node, state_in)})
+                # 1) 상태 이벤트 (UI 상단 등)
+                yield sse("node_update", {"message": _status_message_for(node, update)})
 
+                # 2) 실제 메시지/이벤트 (handler.py 규격에 따름)
                 for event_name, payload in (handle_node_update(node, update) or []):
                     yield sse(event_name, payload)
 
@@ -62,5 +77,8 @@ def stream_graph(graph, state_in: Dict[str, Any]) -> StreamingResponse:
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
     )

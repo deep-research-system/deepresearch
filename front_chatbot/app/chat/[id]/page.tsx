@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 
 import { ChatHeader } from "@/components/chat-header"
 import { MessageList } from "@/components/message-list"
@@ -9,115 +9,96 @@ import { ChatInput } from "@/components/chat-input"
 import { useChat } from "@/components/chat-provider"
 
 import { readSseStream } from "@/lib/sse"
-
-type Agent = "General" | "DeepResearch" | "MeetingSummary"
+import type { Agent } from "@/lib/chat-store"
 
 type PendingClarify = {
   originalQuestion: string
   questions: string[]
+  answers: string[]
 }
 
-// 디버그용: 내부 이벤트(final_question/subqueries)를 화면에 찍을지
 const DEBUG_SHOW_INTERNAL = true
+const API_URL = "http://localhost:8000/deepresearch"
 
 function now() {
   return Date.now()
 }
-
 function newId() {
   return crypto.randomUUID()
 }
 
-function formatClarifyBlock(qs: string[]) {
-  const lines = ["조사 주제를 명확히 하기 위해 몇 가지 질문을 드릴게요."]
-  qs.slice(0, 3).forEach((q, i) => lines.push(`${i + 1}) ${q}`))
+function formatClarifyBlock(qnaMent: string | null, qs: string[]) {
+  const lines: string[] = []
+  if (qnaMent && qnaMent.trim()) lines.push(qnaMent.trim())
+  else lines.push("조사 주제를 명확히 하기 위해 몇 가지 질문을 드릴게요.")
+  qs.slice(0, 10).forEach((q, i) => lines.push(`${i + 1}) ${q}`))
   return lines.join("\n")
 }
 
 export default function ChatPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
-  const { chats, setChats, toggleSidebar } = useChat()
+  const sp = useSearchParams()
+  const qFromUrl = (sp.get("q") || "").trim()
 
+  const { chats, setChats, toggleSidebar } = useChat()
   const chat = useMemo(() => chats.find((c) => c.id === id), [chats, id])
+
   const [isLoading, setIsLoading] = useState(false)
 
-  // “현재 추가질문이 대기 중인지”를 프론트가 들고 있다가 다음 요청에 실어 보냄
   const pendingClarifyRef = useRef<PendingClarify | null>(null)
-
-  // 같은 요청(턴)에서 assistant 메시지에 누적 스트리밍하기 위한 turn id
-  const turnIdRef = useRef<string>("")
-
-  // 중복 전송 방지
   const sendLockRef = useRef(false)
-
-  // statusText를 고정할지(에러 등) 제어
   const statusStickyRef = useRef(false)
-
-  // 현재 턴에서 assistant_text를 “한 번이라도” 받았는지
-  const gotAssistantTextRef = useRef(false)
-
-  // 백엔드 엔드포인트
-  const API_URL = "http://localhost:8000/invoke/stream"
+  const gotAnyAssistantContentRef = useRef(false)
 
   useEffect(() => {
     if (!chat) router.replace("/")
   }, [chat, router])
 
-  function updateChatMessages(updater: (prev: any[]) => any[]) {
+  function updateChatMessages(chatId: string, updater: (prev: any[]) => any[]) {
     setChats((prev) =>
       prev.map((c) => {
-        if (c.id !== id) return c
+        if (c.id !== chatId) return c
         const nextMessages = updater(c.messages)
         return { ...c, messages: nextMessages, updatedAt: now() }
-      })
+      }),
     )
   }
 
-  function addUserMessage(content: string) {
-    updateChatMessages((prev) => [
-      ...prev,
-      { id: newId(), role: "user", content, createdAt: now() },
-    ])
-  }
-
-  function ensureAssistantMessage(turnId: string, initialStatus = "") {
-    updateChatMessages((prev) => {
-      const exists = prev.some((m) => m.role === "assistant" && m.turnId === turnId)
+  function ensureAssistantMessage(chatId: string, turnId: string, initialStatus = "") {
+    updateChatMessages(chatId, (prev) => {
+      const exists = prev.some((m: any) => m.role === "assistant" && m.turnId === turnId)
       if (exists) return prev
       return [
         ...prev,
-        {
-          id: newId(),
-          role: "assistant",
-          turnId,
-          statusText: initialStatus,
-          body: "",
-          createdAt: now(),
-        },
+        { id: newId(), role: "assistant", turnId, statusText: initialStatus, content: "", createdAt: now() },
       ]
     })
   }
 
-  function setAssistantStatus(turnId: string, text: string) {
-    updateChatMessages((prev) =>
-      prev.map((m) => {
+  function setAssistantStatus(chatId: string, turnId: string, text: string) {
+    updateChatMessages(chatId, (prev) =>
+      prev.map((m: any) => {
         if (m.role !== "assistant") return m
         if (m.turnId !== turnId) return m
         if (statusStickyRef.current) return m
         return { ...m, statusText: text }
-      })
+      }),
     )
   }
 
-  function appendAssistantText(turnId: string, chunk: string) {
-    updateChatMessages((prev) =>
-      prev.map((m) => {
+  function appendAssistantText(chatId: string, turnId: string, chunk: string) {
+    updateChatMessages(chatId, (prev) =>
+      prev.map((m: any) => {
         if (m.role !== "assistant") return m
         if (m.turnId !== turnId) return m
-        return { ...m, body: (m.body || "") + chunk }
-      })
+        return { ...m, content: (m.content || "") + chunk }
+      }),
     )
+  }
+
+  function addUserMessage(chatId: string, content: string) {
+    updateChatMessages(chatId, (prev) => [...prev, { id: newId(), role: "user", content, createdAt: now() }])
   }
 
   function releaseSendLock() {
@@ -125,14 +106,14 @@ export default function ChatPage() {
     setIsLoading(false)
   }
 
-  async function startStream(turnId: string, params: {
-    question: string
-    messages: { role: string; content: string }[]
-    clarifying_questions: string[]
-    clarifying_answers: string[]
-  }) {
-    let ended = false
+  // 요청 직전에 최신 messages를 다시 꺼내기
+  function getLatestMessagesFor(chatId: string) {
+    const latestChat = chats.find((c) => c.id === chatId)
+    const msgs = latestChat?.messages || []
+    return msgs.map((m: any) => ({ role: m.role, content: m.content || "" }))
+  }
 
+  async function startStream(chatId: string, turnId: string, params: any) {
     const res = await fetch(API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -141,119 +122,106 @@ export default function ChatPage() {
 
     if (!res.ok) {
       statusStickyRef.current = true
-      setAssistantStatus(turnId, `서버 오류 (HTTP ${res.status})`)
+      setAssistantStatus(chatId, turnId, `서버 오류 (HTTP ${res.status})`)
       releaseSendLock()
       return
     }
 
+    let ended = false
+
     try {
       await readSseStream(res, (evt) => {
-        // 디버깅 로그
         console.log("[SSE]", evt.event, evt.data)
 
         if (evt.event === "start") {
-          const msg = evt.data?.message ?? "시작"
-          setAssistantStatus(turnId, msg)
+          setAssistantStatus(chatId, turnId, evt.data?.message ?? "시작")
           return
         }
-
         if (evt.event === "node_update") {
           const msg = evt.data?.message ?? ""
-          if (msg) setAssistantStatus(turnId, msg)
+          if (msg) setAssistantStatus(chatId, turnId, msg)
           return
         }
-
-        if (evt.event === "assistant") {
-          const data = evt.data || {}
-          const t = data.type
-
-          // 1) 실시간 스트리밍 텍스트
-          if (t === "assistant_text") {
-            const chunk = (data.content ?? "").toString()
-            if (chunk) {
-              gotAssistantTextRef.current = true
-              appendAssistantText(turnId, chunk)
-            }
-            return
-          }
-
-          // 2) 추가질문 리스트(저장용 + (필요시) 화면표시)
-          if (t === "clarify_questions" || t === "clarify_questions_done") {
-            const qs: string[] = Array.isArray(data.questions) ? data.questions : []
-            if (qs.length > 0) {
-              pendingClarifyRef.current = {
-                originalQuestion: params.question,
-                questions: qs,
-              }
-
-              // 백엔드가 안내문/질문을 assistant_text로 안 흘려주는 케이스 대비:
-              // (NO_QUESTION 필터링, LLM 출력형식 불안정 등)
-              if (!gotAssistantTextRef.current) {
-                appendAssistantText(turnId, formatClarifyBlock(qs))
-                gotAssistantTextRef.current = true
-              }
-            }
-            return
-          }
-
-          // 3) 최종 질문(디버그로 화면 표시)
-          if (t === "final_question") {
-            const fq = (data.question ?? "").toString().trim()
-            if (DEBUG_SHOW_INTERNAL && fq) {
-              const block = `\n\n[final_question]\n${fq}\n`
-              appendAssistantText(turnId, block)
-              gotAssistantTextRef.current = true
-            }
-            return
-          }
-
-          // 4) 서브쿼리(디버그로 화면 표시)
-          if (t === "subqueries_done") {
-            const subqs: string[] = Array.isArray(data.sub_queries) ? data.sub_queries : []
-            if (DEBUG_SHOW_INTERNAL && subqs.length > 0) {
-              const block =
-                `\n\n[subqueries_done]\n` +
-                subqs.map((q, i) => `${i + 1}) ${q}`).join("\n") +
-                "\n"
-              appendAssistantText(turnId, block)
-              gotAssistantTextRef.current = true
-            }
-            return
-          }
-
-          return
-        }
-
         if (evt.event === "error") {
-          const msg = evt.data?.message ?? "알 수 없는 에러"
           statusStickyRef.current = true
-          setAssistantStatus(turnId, `에러: ${msg}`)
+          setAssistantStatus(chatId, turnId, `에러: ${evt.data?.message ?? "unknown"}`)
           return
         }
-
         if (evt.event === "end") {
           ended = true
-
-          // “아무 내용도 안 찍힌” 케이스 방지(사용자 체감)
-          if (!gotAssistantTextRef.current && DEBUG_SHOW_INTERNAL) {
-            appendAssistantText(turnId, "\n\n(표시할 출력이 없습니다. final_question/subqueries 출력 로직을 확인하세요)\n")
-          }
-
           releaseSendLock()
+          return
+        }
+
+        // ✅ 백엔드 handler.py 기준: event_name은 "llm"
+        if (evt.event !== "llm") return
+
+        const data = evt.data || {}
+        const t = data.type
+
+        // 0) 잘못된 입력 안내(배열일 수도 있음)
+        if (t === "error_messages") {
+          const msgs = Array.isArray(data.content) ? data.content : []
+          if (msgs.length) {
+            gotAnyAssistantContentRef.current = true
+            appendAssistantText(chatId, turnId, msgs.join("\n") + "\n")
+          } else if (typeof data.content === "string" && data.content.trim()) {
+            gotAnyAssistantContentRef.current = true
+            appendAssistantText(chatId, turnId, data.content.trim() + "\n")
+          }
+          return
+        }
+
+        // 1) 안내 멘트(추가질문 시작 멘트)
+        if (t === "qna_ment") {
+          const ment = (data.content ?? "").toString()
+          if (ment.trim()) {
+            gotAnyAssistantContentRef.current = true
+            appendAssistantText(chatId, turnId, ment.trim() + "\n")
+          }
+          return
+        }
+
+        // 2) 추가질문 리스트
+        if (t === "addition_questions") {
+          const qs: string[] = Array.isArray(data.questions) ? data.questions : []
+          if (qs.length > 0) {
+            // 멘트가 직전에 왔을 수도 있으니, 여기서는 멘트를 따로 저장하지 않고 블록만 출력
+            pendingClarifyRef.current = { originalQuestion: params.question, questions: qs, answers: [] }
+
+            if (!gotAnyAssistantContentRef.current) {
+              // qna_ment가 먼저 안 왔어도, 여기서 최소 안내문 출력
+              appendAssistantText(chatId, turnId, formatClarifyBlock(null, qs))
+            } else {
+              // 이미 멘트가 찍혔다면 질문만 이어붙이기
+              appendAssistantText(chatId, turnId, "\n" + qs.map((q, i) => `${i + 1}) ${q}`).join("\n"))
+            }
+            gotAnyAssistantContentRef.current = true
+          }
+          return
+        }
+
+        // 3) 최종 질문(디버그 표시용)
+        if (t === "final_question") {
+          const fq = (data.question ?? "").toString().trim()
+          if (DEBUG_SHOW_INTERNAL && fq) {
+            appendAssistantText(chatId, turnId, `최종 검색어 : ${fq}`)
+          }
+          // final_question을 받았다는 건 추가질문 단계 종료로 볼 수 있음
+          pendingClarifyRef.current = null
           return
         }
       })
     } catch (e: any) {
       statusStickyRef.current = true
-      setAssistantStatus(turnId, `스트림 처리 실패: ${e?.message ?? String(e)}`)
+      setAssistantStatus(chatId, turnId, `스트림 처리 실패: ${e?.message ?? String(e)}`)
       releaseSendLock()
     } finally {
-      // readSseStream이 end 이벤트 없이 종료되는 경우 대비
       if (!ended) releaseSendLock()
     }
   }
 
-  async function handleSend(text: string, _agent: Agent) {
+  async function handleSend(text: string, agent: Agent) {
     if (!chat) return
     if (sendLockRef.current) return
 
@@ -262,60 +230,65 @@ export default function ChatPage() {
 
     sendLockRef.current = true
     statusStickyRef.current = false
-    gotAssistantTextRef.current = false
+    gotAnyAssistantContentRef.current = false
     setIsLoading(true)
 
-    // 요청 전에 기존 히스토리만 구성(이번에 입력한 text는 question으로 따로 보냄)
-    const messagesForRequest =
-      (chat.messages || [])
-        .filter((m: any) => m.role === "user" || m.role === "assistant")
-        .map((m: any) => {
-          if (m.role === "assistant") return { role: "assistant", content: m.body || "" }
-          return { role: "user", content: m.content || "" }
-        }) ?? []
+    addUserMessage(chat.id, trimmed)
 
-    // UI에 먼저 user 메시지 추가
-    addUserMessage(trimmed)
-
-    // assistant placeholder 생성
     const turnId = newId()
-    turnIdRef.current = turnId
-    ensureAssistantMessage(turnId, "질문분석중...")
+    ensureAssistantMessage(chat.id, turnId, "질문분석중...")
 
-    // 1) “추가질문 답변 제출” 모드
+    const latestMessages = getLatestMessagesFor(chat.id)
     const pending = pendingClarifyRef.current
-    if (pending && pending.questions.length > 0) {
-      try {
-        await startStream(turnId, {
-          question: pending.originalQuestion,
-          messages: messagesForRequest,
-          clarifying_questions: pending.questions,
-          clarifying_answers: [trimmed],
-        })
-        // 일단 pending 해제(서버가 followup을 주면 다시 세팅됨)
-        pendingClarifyRef.current = null
-      } catch (e: any) {
-        statusStickyRef.current = true
-        setAssistantStatus(turnId, `요청 실패: ${e?.message ?? String(e)}`)
+
+    // ✅ 추가질문 답변 수집 모드
+    if (pending && pending.questions.length) {
+      const nextAnswers = [...pending.answers, trimmed]
+      const needCount = pending.questions.length
+
+      // 아직 답변이 덜 모였으면: 백엔드 호출하지 않고 "다음 질문"만 프론트에서 안내
+      if (nextAnswers.length < needCount) {
+        pendingClarifyRef.current = { ...pending, answers: nextAnswers }
+
+        const nextQ = pending.questions[nextAnswers.length] // 0-based
+        // UI 변경 없이: assistant 메시지에 다음 질문 한 줄만 이어서 표시
+        appendAssistantText(chat.id, turnId, `${nextAnswers.length + 1}) ${nextQ}\n`)
         releaseSendLock()
+        return
       }
+
+      // 답변이 모두 모이면: 그때 백엔드에 한 번에 전달
+      pendingClarifyRef.current = null
+      await startStream(chat.id, turnId, {
+        question: pending.originalQuestion,
+        messages: latestMessages,
+        clarifying_questions: pending.questions,
+        clarifying_answers: nextAnswers,
+      })
       return
     }
 
-    // 2) 일반 질문 모드
-    try {
-      await startStream(turnId, {
-        question: trimmed,
-        messages: messagesForRequest,
-        clarifying_questions: [],
-        clarifying_answers: [],
-      })
-    } catch (e: any) {
-      statusStickyRef.current = true
-      setAssistantStatus(turnId, `요청 실패: ${e?.message ?? String(e)}`)
-      releaseSendLock()
-    }
+    // ✅ 일반 질문(첫 진입)
+    await startStream(chat.id, turnId, {
+      question: trimmed,
+      messages: latestMessages,
+      clarifying_questions: [],
+      clarifying_answers: [],
+    })
   }
+
+  // 홈에서 넘어온 q= 자동 실행 유지
+  const autoRanRef = useRef(false)
+  useEffect(() => {
+    if (!chat) return
+    if (!qFromUrl) return
+    if (autoRanRef.current) return
+    autoRanRef.current = true
+
+    router.replace(`/chat/${id}`)
+    handleSend(qFromUrl, chat.agent)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat, qFromUrl, id])
 
   if (!chat) return null
 
@@ -333,9 +306,7 @@ export default function ChatPage() {
             disabled={isLoading}
             agent={chat.agent}
             onAgentChange={(a) => {
-              setChats((prev) =>
-                prev.map((c) => (c.id === chat.id ? { ...c, agent: a, updatedAt: now() } : c))
-              )
+              setChats((prev) => prev.map((c) => (c.id === chat.id ? { ...c, agent: a, updatedAt: now() } : c)))
             }}
             onSend={(t) => handleSend(t, chat.agent)}
           />

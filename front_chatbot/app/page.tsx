@@ -1,45 +1,28 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { useChat } from "@/components/chat-provider"
-import { ChatHeader } from "@/components/chat-header"
-import { MessageList } from "@/components/message-list"
-import { ChatInput } from "@/components/chat-input"
-import { createChat, type Agent } from "@/lib/chat-store"
+import { createChat } from "@/lib/chat-store"
 
 export default function HomePage() {
-  const [agent, setAgent] = useState<Agent>("General")
   const router = useRouter()
-  const { toggleSidebar, setChats } = useChat()
+  const { setChats } = useChat()
+  const ranRef = useRef(false)
 
-  const handleSend = async (message: string) => {
-    const trimmed = (message ?? "").trim()
-    if (!trimmed) return
+  useEffect(() => {
+    // StrictMode(dev) 2회 실행 방지
+    if (ranRef.current) return
+    ranRef.current = true
 
-    const newChat = createChat(agent)
-    newChat.title = trimmed.slice(0, 50) + (trimmed.length > 50 ? "..." : "")
-    newChat.updatedAt = Date.now()
+    const c = createChat("DeepResearch")
 
-    // 1) 스토어 등록
-    setChats((prev) => [...prev, newChat])
+    // 사내용 정책: 항상 깨끗하게 1개만 시작
+    setChats([c])
 
-    // 2) 첫 질문을 pending으로 저장 (chat/[id]에서 자동 전송)
-    try {
-      localStorage.setItem(`pending-message-${newChat.id}`, trimmed)
-    } catch {
-      // localStorage 접근 불가 환경이면 자동전송이 안 될 수 있음
-    }
+    // 바로 채팅 화면으로 진입
+    router.replace(`/chat/${c.id}`)
+  }, [router, setChats])
 
-    // 3) 이동
-    router.push(`/chat/${newChat.id}`)
-  }
-
-  return (
-    <>
-      <ChatHeader title="New Chat" onMenuClick={toggleSidebar} />
-      <MessageList messages={[]} />
-      <ChatInput onSend={handleSend} agent={agent} onAgentChange={setAgent} />
-    </>
-  )
+  return null
 }

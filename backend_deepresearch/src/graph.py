@@ -1,22 +1,18 @@
 from langgraph.graph import StateGraph, END
 from src.state import ResearchState
 from src.agents.clarify import clarify
-from src.agents.subquery import subquery
 
 
 def build_graph():
-    g = StateGraph(ResearchState)
-    g.add_node("clarify", clarify)
-    g.add_node("subquery", subquery)
+    graph = StateGraph(ResearchState)
 
-    g.set_entry_point("clarify")
+    # clarify 노드만 사용
+    graph.add_node("clarify", clarify)
 
-    # need_clarification=True이면 "이번 턴은 여기서 종료(사용자 답변 대기)" (clarify, end) or (clarify, subquery)
-    g.add_conditional_edges(
-        "clarify",
-        lambda s: END if s.need_clarification else "subquery",
-        {"subquery": "subquery", END: END},
-    )
+    # 시작점
+    graph.set_entry_point("clarify")
 
-    g.add_edge("subquery", END)
-    return g.compile()
+    # clarify 실행 후 무조건 종료
+    graph.add_edge("clarify", END)
+
+    return graph.compile()

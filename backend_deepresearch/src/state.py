@@ -1,18 +1,23 @@
-from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Any
+from typing import TypedDict, List, Annotated
 
-@dataclass
-class ResearchState:
-    question: str
-    messages: list[dict[str, Any]] = field(default_factory=list)
 
-    # 질문분석agent에서 다루는 필드 (clarify)
-    assistant_text: str = ""
-    need_clarification: bool = False
-    clarifying_questions: list[str] = field(default_factory=list)
-    clarifying_answers: list[str] = field(default_factory=list)
-    final_question: str | None = None
+class BaseState(TypedDict, total = False):
+    question: Annotated[str, "기준이될 사용자 입력"]
+    messages: Annotated[List[str], "대화 히스토리"]
 
-    # 서브쿼리agent에서 다루는 필드 (subquery)
-    sub_queries: list[str] = field(default_factory=list)
+
+class ClarifyState(TypedDict, total = False):
+    error_messages: Annotated[str, "잘못된 질문 입력에대한 LLM의 답변"]
+    need_addition_questions: Annotated[bool, "추가 질문 필요 여부"]
+    qna_ment: Annotated[str, "추가질문 안내문구"]
+    addition_questions: Annotated[List[str], "추가질문 리스트"]
+    addition_questions_answers: Annotated[List[str], "사용자가 답한 추가질문"]
+    final_question: Annotated[str, "확정된 최종 질문"]
+
+
+class SubqueryState(TypedDict):
+    subqueries: Annotated[List[str], "웹검색용 질문들(서브쿼리)"]
+
+
+class ResearchState(BaseState, ClarifyState, SubqueryState, total=False):
+    pass

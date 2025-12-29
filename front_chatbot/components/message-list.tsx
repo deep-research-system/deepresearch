@@ -1,35 +1,31 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { MessageItem } from "./message-item"
 import type { Message } from "@/lib/chat-store"
+import { MessageItem } from "@/components/message-item"
 
-interface MessageListProps {
-  messages: Message[]
-}
-
-export function MessageList({ messages }: MessageListProps) {
-  const endRef = useRef<HTMLDivElement>(null)
+export function MessageList({ messages }: { messages: Message[] }) {
+  const endRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+  }, [messages.length])
 
-  if (messages.length === 0) {
+  if (!messages || messages.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className="text-center text-muted-foreground">
-          <p className="text-lg font-medium mb-2">Start a conversation</p>
-          <p className="text-sm">Send a message to begin</p>
+      <div className="h-full flex items-center justify-center text-muted-foreground">
+        <div className="text-center">
+          <div className="text-lg font-medium">Start a conversation</div>
+          <div className="text-sm">Send a message to begin</div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      {messages.map((message) => (
-        <MessageItem key={message.id} message={message} />
+    <div className="h-full overflow-y-auto">
+      {messages.map((m) => (
+        <MessageItem key={m.id} message={m} />
       ))}
       <div ref={endRef} />
     </div>

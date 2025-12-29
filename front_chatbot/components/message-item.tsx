@@ -3,11 +3,7 @@
 import { cn } from "@/lib/utils"
 import type { Message } from "@/lib/chat-store"
 
-interface MessageItemProps {
-  message: Message
-}
-
-export function MessageItem({ message }: MessageItemProps) {
+export function MessageItem({ message }: { message: Message }) {
   const isUser = message.role === "user"
 
   return (
@@ -18,12 +14,16 @@ export function MessageItem({ message }: MessageItemProps) {
           isUser ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
         )}
       >
+        {!isUser && message.statusText ? (
+          <p className="text-xs opacity-80 mb-2 whitespace-pre-wrap break-words">
+            {message.statusText}
+          </p>
+        ) : null}
+
         <p className="whitespace-pre-wrap break-words">{message.content}</p>
+
         <time className="text-xs opacity-70 mt-1 block">
-          {new Date(message.createdAt).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
+          {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </time>
       </div>
     </div>
