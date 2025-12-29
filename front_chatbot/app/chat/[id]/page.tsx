@@ -20,19 +20,17 @@ type PendingClarify = {
 const DEBUG_SHOW_INTERNAL = true
 const API_URL = "http://localhost:8000/deepresearch"
 
+// “반드시 순차 출력”을 위한 고정 딜레이 (원하면 80~200 사이로 조절)
+const LINE_DELAY_MS = 100
+
 function now() {
   return Date.now()
 }
 function newId() {
   return crypto.randomUUID()
 }
-
-function formatClarifyBlock(qnaMent: string | null, qs: string[]) {
-  const lines: string[] = []
-  if (qnaMent && qnaMent.trim()) lines.push(qnaMent.trim())
-  else lines.push("조사 주제를 명확히 하기 위해 몇 가지 질문을 드릴게요.")
-  qs.slice(0, 10).forEach((q, i) => lines.push(`${i + 1}) ${q}`))
-  return lines.join("\n")
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
 
 export default function ChatPage() {
@@ -49,7 +47,9 @@ export default function ChatPage() {
   const pendingClarifyRef = useRef<PendingClarify | null>(null)
   const sendLockRef = useRef(false)
   const statusStickyRef = useRef(false)
-  const gotAnyAssistantContentRef = useRef(false)
+
+  // 출력 큐: “화면에 찍는 텍스트”는 무조건 이 큐를 통해 순차 처리
+  const printChainRef = useRef<Promise<void>>(Promise.resolve())
 
   useEffect(() => {
     if (!chat) router.replace("/")
@@ -95,6 +95,14 @@ export default function ChatPage() {
         return { ...m, content: (m.content || "") + chunk }
       }),
     )
+  }
+
+  // ✅ “순차 출력 보장” 함수: 반드시 이걸로만 출력
+  function enqueuePrint(chatId: string, turnId: string, line: string, delayMs = LINE_DELAY_MS) {
+    printChainRef.current = printChainRef.current.then(async () => {
+      appendAssistantText(chatId, turnId, line)
+      await sleep(delayMs)
+    })
   }
 
   function addUserMessage(chatId: string, content: string) {
@@ -153,61 +161,66 @@ export default function ChatPage() {
           return
         }
 
-        // ✅ 백엔드 handler.py 기준: event_name은 "llm"
+        // 백엔드 handler.py 기준: event_name은 "llm"
         if (evt.event !== "llm") return
 
         const data = evt.data || {}
         const t = data.type
 
-        // 0) 잘못된 입력 안내(배열일 수도 있음)
+        // 0) 잘못된 입력 안내
         if (t === "error_messages") {
-          const msgs = Array.isArray(data.content) ? data.content : []
-          if (msgs.length) {
-            gotAnyAssistantContentRef.current = true
-            appendAssistantText(chatId, turnId, msgs.join("\n") + "\n")
+          // content가 문자열/배열 어떤 형태든 “줄 단위”로 순차 출력
+          if (Array.isArray(data.content)) {
+            for (const msg of data.content) {
+              if (typeof msg === "string" && msg.trim()) {
+                enqueuePrint(chatId, turnId, msg.trim() + "\n")
+              }
+            }
           } else if (typeof data.content === "string" && data.content.trim()) {
-            gotAnyAssistantContentRef.current = true
-            appendAssistantText(chatId, turnId, data.content.trim() + "\n")
+            enqueuePrint(chatId, turnId, data.content.trim() + "\n")
           }
           return
         }
 
-        // 1) 안내 멘트(추가질문 시작 멘트)
+        // 1) 안내 멘트(추가질문 시작 멘트) — 반드시 1줄 먼저 출력되게 큐에 태움
         if (t === "qna_ment") {
           const ment = (data.content ?? "").toString()
           if (ment.trim()) {
-            gotAnyAssistantContentRef.current = true
-            appendAssistantText(chatId, turnId, ment.trim() + "\n")
+            enqueuePrint(chatId, turnId, ment.trim() + "\n")
           }
           return
         }
 
-        // 2) 추가질문 리스트
+        // 2) 추가질문 — 백엔드가 “한 개씩” 보내는 전제:
+        //    {"type":"addition_questions","questions":"질문1"} 가 여러 번 옴
         if (t === "addition_questions") {
-          const qs: string[] = Array.isArray(data.questions) ? data.questions : []
-          if (qs.length > 0) {
-            // 멘트가 직전에 왔을 수도 있으니, 여기서는 멘트를 따로 저장하지 않고 블록만 출력
-            pendingClarifyRef.current = { originalQuestion: params.question, questions: qs, answers: [] }
-
-            if (!gotAnyAssistantContentRef.current) {
-              // qna_ment가 먼저 안 왔어도, 여기서 최소 안내문 출력
-              appendAssistantText(chatId, turnId, formatClarifyBlock(null, qs))
-            } else {
-              // 이미 멘트가 찍혔다면 질문만 이어붙이기
-              appendAssistantText(chatId, turnId, "\n" + qs.map((q, i) => `${i + 1}) ${q}`).join("\n"))
+          const q = data.questions
+          if (typeof q === "string" && q.trim()) {
+            // pending이 아직 없으면 생성
+            if (!pendingClarifyRef.current) {
+              pendingClarifyRef.current = {
+                originalQuestion: params.question,
+                questions: [],
+                answers: [],
+              }
             }
-            gotAnyAssistantContentRef.current = true
+
+            // 질문 누적
+            pendingClarifyRef.current.questions.push(q.trim())
+            const idx = pendingClarifyRef.current.questions.length
+
+            // ✅ “질문 1개씩” 반드시 순차 출력 (큐 + 딜레이)
+            enqueuePrint(chatId, turnId, `${idx}) ${q.trim()}\n`)
           }
           return
         }
 
-        // 3) 최종 질문(디버그 표시용)
+        // 3) 최종 질문(표시용) — 이것도 큐로 출력(원하면)
         if (t === "final_question") {
           const fq = (data.question ?? "").toString().trim()
           if (DEBUG_SHOW_INTERNAL && fq) {
-            appendAssistantText(chatId, turnId, `최종 검색어 : ${fq}`)
+            enqueuePrint(chatId, turnId, `최종 검색어 : ${fq}\n`, 0)
           }
-          // final_question을 받았다는 건 추가질문 단계 종료로 볼 수 있음
           pendingClarifyRef.current = null
           return
         }
@@ -230,7 +243,6 @@ export default function ChatPage() {
 
     sendLockRef.current = true
     statusStickyRef.current = false
-    gotAnyAssistantContentRef.current = false
     setIsLoading(true)
 
     addUserMessage(chat.id, trimmed)
@@ -241,18 +253,18 @@ export default function ChatPage() {
     const latestMessages = getLatestMessagesFor(chat.id)
     const pending = pendingClarifyRef.current
 
-    // ✅ 추가질문 답변 수집 모드
+    // 추가질문 답변 수집 모드 (pending.questions 길이만큼 답을 모아서 한 번에 전송)
     if (pending && pending.questions.length) {
       const nextAnswers = [...pending.answers, trimmed]
       const needCount = pending.questions.length
 
-      // 아직 답변이 덜 모였으면: 백엔드 호출하지 않고 "다음 질문"만 프론트에서 안내
+      // 아직 답변이 덜 모였으면: 다음 질문을 화면에만 안내(백엔드 호출 X)
       if (nextAnswers.length < needCount) {
         pendingClarifyRef.current = { ...pending, answers: nextAnswers }
 
         const nextQ = pending.questions[nextAnswers.length] // 0-based
-        // UI 변경 없이: assistant 메시지에 다음 질문 한 줄만 이어서 표시
-        appendAssistantText(chat.id, turnId, `${nextAnswers.length + 1}) ${nextQ}\n`)
+        // 사용자에게 다음 질문을 “순차 출력”으로 표시 (선택)
+        enqueuePrint(chat.id, turnId, `${nextAnswers.length + 1}) ${nextQ}\n`)
         releaseSendLock()
         return
       }
@@ -268,7 +280,7 @@ export default function ChatPage() {
       return
     }
 
-    // ✅ 일반 질문(첫 진입)
+    // 일반 질문(첫 진입)
     await startStream(chat.id, turnId, {
       question: trimmed,
       messages: latestMessages,

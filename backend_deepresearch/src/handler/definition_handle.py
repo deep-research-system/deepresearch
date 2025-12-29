@@ -25,8 +25,10 @@ def handle_node_update(node: str, update: Dict[str, Any]) -> Iterable[Event]:
             if qna_ment:
                 yield ("llm", {"type": "qna_ment", "content": qna_ment})
             if addition_questions:
-                yield ("llm", {"type": "addition_questions", "questions": addition_questions})
+                for add_questions in addition_questions:
+                    yield ("llm", {"type": "addition_questions", "questions": add_questions})
             return
+
 
 
 
