@@ -43,6 +43,7 @@ export default function ChatPage() {
 
   const [isLoading, setIsLoading] = useState(false)
 
+  const subqCountRef = useRef<Record<string, number>>({})
   const pendingClarifyRef = useRef<PendingClarify | null>(null)
   const sendLockRef = useRef(false)
   const statusStickyRef = useRef(false)
@@ -213,6 +214,20 @@ export default function ChatPage() {
           pendingClarifyRef.current = null
           return
         }
+
+        // 4) 서브쿼리
+        if (t === "subqueries") {
+          const q = (data.query ?? "").toString().trim()
+          if (q) {
+            // turnId별 번호 증가
+            if (subqCountRef.current[turnId] == null) subqCountRef.current[turnId] = 0
+            subqCountRef.current[turnId] += 1
+        
+            // 순차 출력 (1) ... 2) ... 형태
+            enqueuePrint(chatId, turnId, `${subqCountRef.current[turnId]}) ${q}\n`)
+          }
+          return
+        }
       })
     } catch (e: any) {
       statusStickyRef.current = true
@@ -237,6 +252,7 @@ export default function ChatPage() {
     addUserMessage(chat.id, trimmed)
 
     const turnId = newId()
+    subqCountRef.current[turnId] = 0
     ensureAssistantMessage(chat.id, turnId, "질문분석중...")
 
     const pending = pendingClarifyRef.current

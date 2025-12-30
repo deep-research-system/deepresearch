@@ -38,12 +38,21 @@ def _status_message_for(node: str, update: Dict[str, Any]) -> str:
             return "최종 질문 확정중..."
         return "질문 분석중..."
     
+    
     if node == "clarify_answer":
         if update.get("answers_sufficient") is True:
             return "최종 질문 확정중..."
         if update.get("answers_sufficient") is False:
             return "추가 답변 확인중..."
         return "답변 판정중..."
+    
+    if node == "subquery":
+        if "error_messages" in update:
+            return "서브 검색어 검증중..."
+        if "subqueries" in update:
+            return "서브쿼리 생성 완료"
+        return "서브쿼리 생성중..."
+    
 
     return f"{node} 처리중..."
 
@@ -55,6 +64,8 @@ def start_graph(graph: Any, state: Dict[str, Any]) -> StreamingResponse:
 
             for chunk in graph.stream(state, stream_mode="updates"):
                 node, update = _normalize_chunk(chunk)
+                # 디버깅용 코드
+                print(f"[SSE][{node}] keys={list(update.keys())}")
 
                 # 1) 상태 이벤트 (UI 상단 등)
                 yield sse("node_update", {"message": _status_message_for(node, update)})

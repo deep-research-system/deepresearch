@@ -47,3 +47,10 @@ def handle_node_update(node: str, update: Dict[str, Any]) -> Iterable[Event]:
                 for add_questions in addition_questions:
                     yield ("llm", {"type": "addition_questions", "questions": add_questions})
             return
+        
+    if node == "subquery":
+        # 5. 서브쿼리들 생성
+        if node == "subquery":
+            for q in update.get("subqueries", []):
+                yield ("llm", {"type": "subqueries", "query": q})
+            return
