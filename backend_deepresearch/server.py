@@ -10,6 +10,7 @@ from src.utils.stream import start_graph
 
 class DeepresearchRequest(BaseModel):
     question: str
+    addition_questions: Optional[List[str]] = None
     addition_questions_answers: Optional[List[str]] =None
 
 
@@ -31,7 +32,7 @@ def deepresearch(Deep: DeepresearchRequest):
     # 프론트로 받은 값들을 BaseState가 이해하도록 키 - 값 넣어줌
     state: Dict[str, Any] = {
         "question" : Deep.question,
-        "messages" : [],
+        "addition_questions": Deep.addition_questions,
         "addition_questions_answers" : Deep.addition_questions_answers
         }
     return start_graph(graph, state)

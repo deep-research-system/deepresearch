@@ -13,14 +13,13 @@ import type { Agent } from "@/lib/chat-store"
 
 type PendingClarify = {
   originalQuestion: string
-  questions: string[]
-  answers: string[]
+  questions: string[] // addition_questions
 }
 
 const DEBUG_SHOW_INTERNAL = true
 const API_URL = "http://localhost:8000/deepresearch"
 
-// “반드시 순차 출력”을 위한 고정 딜레이 (원하면 80~200 사이로 조절)
+// “반드시 순차 출력”을 위한 고정 딜레이
 const LINE_DELAY_MS = 100
 
 function now() {
@@ -97,7 +96,7 @@ export default function ChatPage() {
     )
   }
 
-  // ✅ “순차 출력 보장” 함수: 반드시 이걸로만 출력
+  // “순차 출력 보장”
   function enqueuePrint(chatId: string, turnId: string, line: string, delayMs = LINE_DELAY_MS) {
     printChainRef.current = printChainRef.current.then(async () => {
       appendAssistantText(chatId, turnId, line)
@@ -114,14 +113,9 @@ export default function ChatPage() {
     setIsLoading(false)
   }
 
-  // 요청 직전에 최신 messages를 다시 꺼내기
-  function getLatestMessagesFor(chatId: string) {
-    const latestChat = chats.find((c) => c.id === chatId)
-    const msgs = latestChat?.messages || []
-    return msgs.map((m: any) => ({ role: m.role, content: m.content || "" }))
-  }
-
   async function startStream(chatId: string, turnId: string, params: any) {
+    console.log("[REQ_BODY]", params)
+    
     const res = await fetch(API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -161,7 +155,7 @@ export default function ChatPage() {
           return
         }
 
-        // 백엔드 handler.py 기준: event_name은 "llm"
+        // 백엔드 handler 기준: event_name은 "llm"
         if (evt.event !== "llm") return
 
         const data = evt.data || {}
@@ -169,12 +163,9 @@ export default function ChatPage() {
 
         // 0) 잘못된 입력 안내
         if (t === "error_messages") {
-          // content가 문자열/배열 어떤 형태든 “줄 단위”로 순차 출력
           if (Array.isArray(data.content)) {
             for (const msg of data.content) {
-              if (typeof msg === "string" && msg.trim()) {
-                enqueuePrint(chatId, turnId, msg.trim() + "\n")
-              }
+              if (typeof msg === "string" && msg.trim()) enqueuePrint(chatId, turnId, msg.trim() + "\n")
             }
           } else if (typeof data.content === "string" && data.content.trim()) {
             enqueuePrint(chatId, turnId, data.content.trim() + "\n")
@@ -182,45 +173,43 @@ export default function ChatPage() {
           return
         }
 
-        // 1) 안내 멘트(추가질문 시작 멘트) — 반드시 1줄 먼저 출력되게 큐에 태움
+        // 1) 안내 멘트
         if (t === "qna_ment") {
           const ment = (data.content ?? "").toString()
-          if (ment.trim()) {
-            enqueuePrint(chatId, turnId, ment.trim() + "\n")
-          }
+          if (ment.trim()) enqueuePrint(chatId, turnId, ment.trim() + "\n")
           return
         }
 
-        // 2) 추가질문 — 백엔드가 “한 개씩” 보내는 전제:
-        //    {"type":"addition_questions","questions":"질문1"} 가 여러 번 옴
+        // 2) 추가질문 (서버가 한 개씩 보내는 전제)
+        // {"type":"addition_questions","questions":"질문1"} 가 여러 번 옴
         if (t === "addition_questions") {
           const q = data.questions
           if (typeof q === "string" && q.trim()) {
             // pending이 아직 없으면 생성
             if (!pendingClarifyRef.current) {
+              // IMPORTANT: "원 질문"은 1차 요청 params.question 기준으로 저장
               pendingClarifyRef.current = {
                 originalQuestion: params.question,
                 questions: [],
-                answers: [],
               }
             }
 
-            // 질문 누적
             pendingClarifyRef.current.questions.push(q.trim())
             const idx = pendingClarifyRef.current.questions.length
 
-            // ✅ “질문 1개씩” 반드시 순차 출력 (큐 + 딜레이)
+            // 순차 출력
             enqueuePrint(chatId, turnId, `${idx}) ${q.trim()}\n`)
           }
           return
         }
 
-        // 3) 최종 질문(표시용) — 이것도 큐로 출력(원하면)
+        // 3) 최종 질문
         if (t === "final_question") {
           const fq = (data.question ?? "").toString().trim()
           if (DEBUG_SHOW_INTERNAL && fq) {
             enqueuePrint(chatId, turnId, `최종 검색어 : ${fq}\n`, 0)
           }
+          // 최종 확정이면 pending 종료
           pendingClarifyRef.current = null
           return
         }
@@ -250,42 +239,27 @@ export default function ChatPage() {
     const turnId = newId()
     ensureAssistantMessage(chat.id, turnId, "질문분석중...")
 
-    const latestMessages = getLatestMessagesFor(chat.id)
     const pending = pendingClarifyRef.current
 
-    // 추가질문 답변 수집 모드 (pending.questions 길이만큼 답을 모아서 한 번에 전송)
+    // ===== 2차 요청 모드: 추가질문이 떠있는 상태에서 사용자 입력이 들어온 경우 =====
     if (pending && pending.questions.length) {
-      const nextAnswers = [...pending.answers, trimmed]
-      const needCount = pending.questions.length
-
-      // 아직 답변이 덜 모였으면: 다음 질문을 화면에만 안내(백엔드 호출 X)
-      if (nextAnswers.length < needCount) {
-        pendingClarifyRef.current = { ...pending, answers: nextAnswers }
-
-        const nextQ = pending.questions[nextAnswers.length] // 0-based
-        // 사용자에게 다음 질문을 “순차 출력”으로 표시 (선택)
-        enqueuePrint(chat.id, turnId, `${nextAnswers.length + 1}) ${nextQ}\n`)
-        releaseSendLock()
-        return
-      }
-
-      // 답변이 모두 모이면: 그때 백엔드에 한 번에 전달
+      // 너 의도: 3개 질문 중 1개만 답해도 서버가 판단하고, 부족하면 재질문 다시 내려줌
+      // 따라서 "한 번 입력될 때마다" 바로 2차 요청을 보낸다.
       pendingClarifyRef.current = null
+
       await startStream(chat.id, turnId, {
-        question: pending.originalQuestion,
-        messages: latestMessages,
-        clarifying_questions: pending.questions,
-        clarifying_answers: nextAnswers,
+        question: pending.originalQuestion,                 // 원 질문
+        addition_questions: pending.questions,              // 추가질문 리스트
+        addition_questions_answers: [trimmed],              // 사용자 답변 (1개여도 리스트)
       })
       return
     }
 
-    // 일반 질문(첫 진입)
+    // ===== 1차 요청 모드 =====
     await startStream(chat.id, turnId, {
       question: trimmed,
-      messages: latestMessages,
-      clarifying_questions: [],
-      clarifying_answers: [],
+      addition_questions: null,
+      addition_questions_answers: null,
     })
   }
 

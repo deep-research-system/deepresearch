@@ -29,7 +29,7 @@ def _status_message_for(node: str, update: Dict[str, Any]) -> str:
     """
     ~~중... 표시
     """
-    if node == "clarify":
+    if node == "clarify_first":
         if "error_messages" in update:
             return "입력값 검증중..."
         if update.get("need_addition_questions") is True:
@@ -37,8 +37,14 @@ def _status_message_for(node: str, update: Dict[str, Any]) -> str:
         if update.get("need_addition_questions") is False:
             return "최종 질문 확정중..."
         return "질문 분석중..."
+    
+    if node == "clarify_answer":
+        if update.get("answers_sufficient") is True:
+            return "최종 질문 확정중..."
+        if update.get("answers_sufficient") is False:
+            return "추가 답변 확인중..."
+        return "답변 판정중..."
 
-    # 필요하면 노드별 메시지를 여기서 확장
     return f"{node} 처리중..."
 
 
