@@ -2,6 +2,8 @@
 
 import { cn } from "@/lib/utils"
 import type { Message } from "@/lib/chat-store"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 
 export function MessageItem({ message }: { message: Message }) {
   const isUser = message.role === "user"
@@ -20,8 +22,19 @@ export function MessageItem({ message }: { message: Message }) {
           </p>
         ) : null}
 
-        <p className="whitespace-pre-wrap break-words">{message.content}</p>
-
+        <div className="break-words">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              a: ({ node, ...props }) => (
+                <a {...props} target="_blank" rel="noreferrer noopener" className="underline" />
+              ),
+            }}
+          >
+            {message.content}
+          </ReactMarkdown>
+        </div>
+        
         <time className="text-xs opacity-70 mt-1 block">
           {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </time>

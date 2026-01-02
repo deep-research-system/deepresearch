@@ -5,12 +5,13 @@ import type { Message } from "@/lib/chat-store"
 import { MessageItem } from "@/components/message-item"
 
 export function MessageList({ messages }: { messages: Message[] }) {
+  // 자동스크롤용용
   const endRef = useRef<HTMLDivElement | null>(null)
-
+  //  메시지 추가시 자동스크롤
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages.length])
-
+  // 메시지가 하나도없을때 빈 ui
   if (!messages || messages.length === 0) {
     return (
       <div className="h-full flex items-center justify-center text-muted-foreground">

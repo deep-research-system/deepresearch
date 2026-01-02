@@ -58,9 +58,8 @@ async def _tavily_search_many(
 
 
 async def search_node(state: SubqueryState) -> SearchState:
-    """
-    LangGraph Search 노드 (Search-only)
-    - 입력: state["subqueries"] (주의: 키 이름을 사용자가 subqueries로 확정함)
+    """ LangGraph Search 노드 (Search-only)
+    - 입력: state["subqueries"]
     - 출력: {"search_result": List[SearchResult]}
     - URL 기준 dedupe (첫 등장 query 유지)
     """
@@ -68,7 +67,7 @@ async def search_node(state: SubqueryState) -> SearchState:
     if not isinstance(subqueries, list):
         subqueries = []
 
-    # 문자열 쿼리만 사용
+    # 문자열 쿼리, 앞뒤 공백제거
     queries = [q.strip() for q in subqueries if isinstance(q, str) and q.strip()]
     if not queries:
         return {"search_results": []}
@@ -76,16 +75,16 @@ async def search_node(state: SubqueryState) -> SearchState:
     # 1) 병렬 검색
     responses = await _tavily_search_many(queries, max_results=3, topic="general")
 
-    # 2) URL 기준 dedupe + 첫 등장 query 고정
+    # 2) 같은 url은 한번만 저장, 먼저 등장한 쿼리결과 유지지
     unique_by_url: dict[str, SearchResult] = {}
 
     for resp in responses:
         q = resp.get("query")
-        results = resp.get("results") or []
-        if not isinstance(results, list):
+        tavily_results   = resp.get("results") or []
+        if not isinstance(tavily_results, list):
             continue
 
-        for item in results:
+        for item in tavily_results:
             if not isinstance(item, dict):
                 continue
 
@@ -96,7 +95,7 @@ async def search_node(state: SubqueryState) -> SearchState:
             # dedupe: URL이 이미 있으면 스킵(첫 등장 query 유지)
             if url in unique_by_url:
                 continue
-
+            #  URL결과를 SearchResult로 변환
             sr: SearchResult = {
                 "query": str(q or ""),
                 "title": str(item.get("title") or ""),
@@ -112,5 +111,6 @@ async def search_node(state: SubqueryState) -> SearchState:
                 "source": "tavily",
             }
             unique_by_url[url] = sr
+        print("[SEARCH_NODE] called. subqueries=", state.get("subqueries"))
 
     return {"search_results": list(unique_by_url.values())}

@@ -48,21 +48,27 @@ def _status_message_for(node: str, update: Dict[str, Any]) -> str:
     
     if node == "subquery":
         if "error_messages" in update:
-            return "서브 검색어 검증중..."
+            return "서브 검색어 문제발생..."
         if "subqueries" in update:
             return "서브쿼리 생성 완료"
         return "서브쿼리 생성중..."
     
+    if node == "search":
+        if "search_results" in update:
+            n = len(update.get("search_results") or [])
+            if n > 0:
+                return f"검색 결과 {n}건 수집 완료"
+            return "검색중..."
 
     return f"{node} 처리중..."
 
 
 def start_graph(graph: Any, state: Dict[str, Any]) -> StreamingResponse:
-    def event_generator() -> Iterator[str]:
+    async def event_generator() -> Iterator[str]:
         try:
             yield sse("start", {"message": "딥리서치 시작"})
 
-            for chunk in graph.stream(state, stream_mode="updates"):
+            async for chunk in graph.astream(state, stream_mode="updates"):
                 node, update = _normalize_chunk(chunk)
 
                 # 1) 상태 이벤트 (UI 상단 등)

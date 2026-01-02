@@ -47,6 +47,7 @@ export default function ChatPage() {
   const pendingClarifyRef = useRef<PendingClarify | null>(null)
   const sendLockRef = useRef(false)
   const statusStickyRef = useRef(false)
+  const searchCountRef = useRef<Record<string, number>>({})
 
   // 출력 큐: “화면에 찍는 텍스트”는 무조건 이 큐를 통해 순차 처리
   const printChainRef = useRef<Promise<void>>(Promise.resolve())
@@ -226,6 +227,27 @@ export default function ChatPage() {
             // 순차 출력 (1) ... 2) ... 형태
             enqueuePrint(chatId, turnId, `${subqCountRef.current[turnId]}) ${q}\n`)
           }
+          return
+        }
+
+        // 5) 검색 결과 1건 (URL)
+        if (t === "search_results") {
+          const r = (data.result && typeof data.result === "object") ? data.result : data
+          const title = (r.title ?? "").toString().trim()
+          const url = (r.url ?? "").toString().trim()
+          console.log("[SEARCH_PAYLOAD]", { title, url, raw: data })
+
+          if (url) {
+            // turnId별 번호 증가
+            if (searchCountRef.current[turnId] == null) searchCountRef.current[turnId] = 0
+            searchCountRef.current[turnId] += 1
+
+            const idx = searchCountRef.current[turnId]
+      
+            // 클릭 가능한 링크: HTML 문자열로 출력
+            // (MessageList가 HTML 렌더링을 지원하지 않으면 아래 "대안" 참고)
+            const label = title || url
+            enqueuePrint(chatId, turnId, `${idx}) [${label}](${url})\n`)}
           return
         }
       })
