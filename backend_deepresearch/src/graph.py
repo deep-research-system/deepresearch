@@ -11,11 +11,18 @@ def start_to(state: ResearchState) -> str:
     # 1차 요청: 답변 없으면 원질문 판단 노드로
     return "clarify_first"
 
-def to_subquery_or_end(state: ResearchState) -> str:
+def to_subquery_or_end_from_first(state: ResearchState) -> str:
     fq = (state.get("final_question") or "").strip()
     if state.get("need_addition_questions") is False and fq:
         return "subquery"
     return "end"
+
+def to_subquery_or_end_from_answer(state: ResearchState) -> str:
+    fq = (state.get("final_question") or "").strip()
+    if state.get("answers_sufficient") is True and fq:
+        return "subquery"
+    return "end"
+
 
 def build_graph():
     graph = StateGraph(ResearchState)
@@ -40,7 +47,7 @@ def build_graph():
     
     graph.add_conditional_edges(
         "clarify_first", 
-        to_subquery_or_end, 
+        to_subquery_or_end_from_first, 
         {
             "subquery": "subquery",
             "end": END,
@@ -48,7 +55,7 @@ def build_graph():
 
     graph.add_conditional_edges(
         "clarify_answer", 
-        to_subquery_or_end, 
+        to_subquery_or_end_from_answer, 
         {
             "subquery": "subquery",
             "end": END,
