@@ -60,7 +60,7 @@ async def _tavily_search_many(
 async def search_node(state: SubqueryState) -> SearchState:
     """ LangGraph Search 노드 (Search-only)
     - 입력: state["subqueries"]
-    - 출력: {"search_result": List[SearchResult]}
+    - 출력: {"search_results": List[SearchResult]}
     - URL 기준 dedupe (첫 등장 query 유지)
     """
     subqueries = state.get("subqueries") or []
