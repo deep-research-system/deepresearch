@@ -29,7 +29,7 @@ def handle_node_update(node: str, update: Dict[str, Any]) -> Iterable[Event]:
                     yield ("llm", {"type": "addition_questions", "questions": add_questions})
             return
     
-    if node == "clarify_answer":
+    elif node == "clarify_answer":
         # 4-1. 추가질문 답변 충분 -> 최종 검색
         if update.get("answers_sufficient") is True:
             final_question = update.get("final_question")
@@ -48,9 +48,12 @@ def handle_node_update(node: str, update: Dict[str, Any]) -> Iterable[Event]:
                     yield ("llm", {"type": "addition_questions", "questions": add_questions})
             return
         
-    if node == "subquery":
-        # 5. 서브쿼리들 생성
-        if node == "subquery":
-            for q in update.get("subqueries", []):
-                yield ("llm", {"type": "subqueries", "query": q})
-            return
+    elif node == "subquery":
+        for q in update.get("subqueries", []):
+            yield ("llm", {"type": "subqueries", "query": q})
+        return
+        
+    elif node == "search":
+        for result in update.get("search_results", []):
+            yield ("llm", {"type": "search_results", "result": result})
+        return

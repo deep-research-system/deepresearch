@@ -1,4 +1,4 @@
-from typing import TypedDict, List, Annotated
+from typing import TypedDict, List, Annotated, Dict, Any
 
 
 class BaseState(TypedDict, total = False):
@@ -18,10 +18,21 @@ class ClarifyState(TypedDict, total = False):
     final_question: Annotated[str, "확정된 최종 질문"]
 
 
-class SubqueryState(TypedDict):
+class SubqueryState(TypedDict, total = False):
     subqueries: Annotated[List[str], "웹검색용 질문들(서브쿼리)"]
+
+class SearchResult(TypedDict):
+    query: str
+    title: str
+    url: str
+    snippet: str | None
+    score: float | None
+    source: str
+
+class SearchState(TypedDict, total=False):
+    search_results: Annotated[List[SearchResult], "웹검색 결과 리스트"]
 
 
 # graph.py용
-class ResearchState(BaseState, ClarifyState, SubqueryState, total=False):
+class ResearchState(BaseState, ClarifyState, SubqueryState, SearchState, total=False):
     pass

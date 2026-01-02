@@ -64,8 +64,6 @@ def start_graph(graph: Any, state: Dict[str, Any]) -> StreamingResponse:
 
             for chunk in graph.stream(state, stream_mode="updates"):
                 node, update = _normalize_chunk(chunk)
-                # 디버깅용 코드
-                print(f"[SSE][{node}] keys={list(update.keys())}")
 
                 # 1) 상태 이벤트 (UI 상단 등)
                 yield sse("node_update", {"message": _status_message_for(node, update)})

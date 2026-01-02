@@ -2,6 +2,7 @@ from langgraph.graph import StateGraph, END
 from src.state import ResearchState
 from src.agents.clarify import clarify_first_question, clarify_add_answer
 from src.agents.subquery import subquery
+from src.agents.search import search_node
 
 def start_to(state: ResearchState) -> str:
     # 2차 요청: 답변이 있으면 바로 답변판정 노드로
@@ -24,6 +25,9 @@ def build_graph():
     graph.add_node("clarify_first", clarify_first_question)
     graph.add_node("clarify_answer", clarify_add_answer)
     graph.add_node("subquery", subquery)
+    graph.add_node("search", search_node)
+
+
     graph.set_entry_point("start")
 
     graph.add_conditional_edges(
@@ -50,5 +54,6 @@ def build_graph():
             "end": END,
         },)
 
-    graph.add_edge("subquery", END)
+    graph.add_edge("subquery", "search")
+    graph.add_edge("search", END)
     return graph.compile()
