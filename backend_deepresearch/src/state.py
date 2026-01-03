@@ -1,4 +1,4 @@
-from typing import TypedDict, List, Annotated, Dict, Any
+from typing import TypedDict, List, Annotated, Optional
 
 
 class BaseState(TypedDict, total = False):
@@ -22,6 +22,14 @@ class SubqueryState(TypedDict, total = False):
     subqueries: Annotated[List[str], "웹검색용 질문들(서브쿼리)"]
 
 class SearchResult(TypedDict):
+    """
+    query: 쿼리이름
+    title: 제목
+    url: url
+    snippet: 짧은 요약문
+    score: 검색어 관련성 점수
+    source: 검색엔진
+    """
     query: str
     title: str
     url: str
@@ -33,6 +41,22 @@ class SearchState(TypedDict, total=False):
     search_results: Annotated[List[SearchResult], "웹검색 결과 리스트"]
 
 
+class DocSummary(TypedDict):
+    query: Annotated[str, "검색에 사용된 서브쿼리"]
+    title: Annotated[str, "원본 문서 제목"]
+    url: Annotated[str, "원본 문서 URL"]
+    source: Annotated[str, "문서 수집 출처"]
+    score: Annotated[Optional[float], "검색 엔진 relevance 점수"]
+    summary: Annotated[str, "문서 요약 본문"]
+    bullets: Annotated[List[str], "문서 핵심 포인트 요약"]
+    reliability_notes: Annotated[Optional[str], "신뢰도 관련 주의사항"]
+
+class SummaryState(TypedDict, total=False):
+    doc_summaries: Annotated[List[DocSummary], "문서별 요약 결과 리스트"]
+    # 아래는 나중(통합요약/보고서) 단계에서 사용
+    integrated_summary: Annotated[str, "통합 요약(최종 보고서 초안)"]
+    
+    
 # graph.py용
-class ResearchState(BaseState, ClarifyState, SubqueryState, SearchState, total=False):
+class ResearchState(BaseState, ClarifyState, SubqueryState, SearchState, SummaryState, total=False):
     pass

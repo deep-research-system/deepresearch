@@ -60,6 +60,13 @@ def _status_message_for(node: str, update: Dict[str, Any]) -> str:
                 return f"검색 결과 {n}건 수집 완료"
             return "검색중..."
 
+    if node == "summary":
+        ds = update.get("doc_summary")
+        if ds:
+            title = ds.get("title")
+            return f"문서 요약 완료: {title}" if title else "문서 요약 완료"
+        return "문서 요약중..."
+    
     return f"{node} 처리중..."
 
 

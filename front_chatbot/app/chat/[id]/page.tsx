@@ -48,6 +48,7 @@ export default function ChatPage() {
   const sendLockRef = useRef(false)
   const statusStickyRef = useRef(false)
   const searchCountRef = useRef<Record<string, number>>({})
+  const summaryCountRef = useRef<Record<string, number>>({})
 
   // 출력 큐: “화면에 찍는 텍스트”는 무조건 이 큐를 통해 순차 처리
   const printChainRef = useRef<Promise<void>>(Promise.resolve())
@@ -248,6 +249,47 @@ export default function ChatPage() {
             // (MessageList가 HTML 렌더링을 지원하지 않으면 아래 "대안" 참고)
             const label = title || url
             enqueuePrint(chatId, turnId, `${idx}) [${label}](${url})\n`)}
+          return
+        }
+
+        // 6) 문서 요약 1건 (doc_summary)
+        if (t === "doc_summary") {
+          const doc = (data.doc && typeof data.doc === "object") ? data.doc : null
+          if (!doc) return
+
+          const title = (doc.title ?? "").toString().trim()
+          const url = (doc.url ?? "").toString().trim()
+          const summary = (doc.summary ?? "").toString().trim()
+          const bullets = Array.isArray(doc.bullets) ? doc.bullets : []
+          const notes = (doc.reliability_notes ?? "").toString().trim()
+
+          // turnId별 요약 번호 증가
+          if (summaryCountRef.current[turnId] == null) summaryCountRef.current[turnId] = 0
+          summaryCountRef.current[turnId] += 1
+          const idx = summaryCountRef.current[turnId]
+
+          // 출력 포맷(마크다운)
+          // - 제목(링크)
+          // - 요약
+          // - bullet
+          // - 주의사항(있으면)
+          let out = `\n### 요약 ${idx}) ${title || "문서 요약"}\n`
+          if (url) out += `출처: [${title || url}](${url})\n\n`
+
+          if (summary) out += `${summary}\n\n`
+
+          if (bullets.length > 0) {
+            for (const b of bullets) {
+              if (typeof b === "string" && b.trim()) out += `- ${b.trim()}\n`
+            }
+            out += `\n`
+          }
+
+          if (notes) {
+            out += `주의: ${notes}\n\n`
+          }
+
+          enqueuePrint(chatId, turnId, out)
           return
         }
       })

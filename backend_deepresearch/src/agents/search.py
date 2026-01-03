@@ -111,6 +111,5 @@ async def search_node(state: SubqueryState) -> SearchState:
                 "source": "tavily",
             }
             unique_by_url[url] = sr
-        print("[SEARCH_NODE] called. subqueries=", state.get("subqueries"))
 
     return {"search_results": list(unique_by_url.values())}

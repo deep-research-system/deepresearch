@@ -62,5 +62,19 @@ def handle_node_update(node: str, update: Dict[str, Any]) -> Iterable[Event]:
                     "url": result.get("url"),
                     "query": result.get("query"),
                 }
-            })
+            })    
         return
+    
+    elif node == "summary":
+        # 1) 단일 요약 (혹시 있을 경우)
+        ds = update.get("doc_summary")
+        if ds:
+            yield ("llm", {"type": "doc_summary", "doc": ds})
+            return
+
+        # 2) 복수 요약 리스트 (현재 실제 케이스)
+        items = update.get("doc_summaries")
+        if isinstance(items, list):
+            for ds in items:
+                yield ("llm", {"type": "doc_summary", "doc": ds})
+            return
