@@ -23,9 +23,9 @@ export function MessageList({ messages }: { messages: Message[] }) {
   }
 
   return (
-    // 스크롤은 전체폭, 내부에 중앙 컬럼
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto w-full max-w-4xl px-4">
+      {/* 가운데 고정폭 컬럼 제거 */}
+      <div className="w-full px-4">
         {messages.map((m) => (
           <MessageItem key={m.id} message={m} />
         ))}

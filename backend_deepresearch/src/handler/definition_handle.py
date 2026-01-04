@@ -49,20 +49,15 @@ def handle_node_update(node: str, update: Dict[str, Any]) -> Iterable[Event]:
             return
         
     elif node == "subquery":
-        for q in update.get("subqueries", []):
-            yield ("llm", {"type": "subqueries", "query": q})
+        for subq in update.get("subqueries"):
+            yield ("llm", {"type": "subqueries", "query": subq})
         return
         
     elif node == "search":
-        for result in update.get("search_results", []):
-            yield ("llm", {
-                "type": "search_results",   # 혹은 "search_result" 단수로 통일해도 됨
-                "result": {
-                    "title": result.get("title"),
-                    "url": result.get("url"),
-                    "query": result.get("query"),
-                }
-            })    
+        for result in update.get("search_results"):
+            yield ("llm", {"type": "search_results","result": {
+                "title": result.get("title"),
+                "url": result.get("url")}})
         return
     
     elif node == "summary":

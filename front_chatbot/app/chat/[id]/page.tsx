@@ -16,11 +16,8 @@ type PendingClarify = {
   questions: string[] // addition_questions
 }
 
-const DEBUG_SHOW_INTERNAL = true
 const API_URL = "http://localhost:8000/deepresearch"
-
-// “반드시 순차 출력”을 위한 고정 딜레이
-const LINE_DELAY_MS = 100
+const LINE_DELAY_MS = 80
 
 function now() {
   return Date.now()
@@ -31,6 +28,8 @@ function newId() {
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
+
+type Bucket = "final" | "subq" | "sources" | "summary"
 
 export default function ChatPage() {
   const { id } = useParams<{ id: string }>()
@@ -43,14 +42,19 @@ export default function ChatPage() {
 
   const [isLoading, setIsLoading] = useState(false)
 
-  const subqCountRef = useRef<Record<string, number>>({})
   const pendingClarifyRef = useRef<PendingClarify | null>(null)
   const sendLockRef = useRef(false)
   const statusStickyRef = useRef(false)
-  const searchCountRef = useRef<Record<string, number>>({})
+
+  // 카운터(턴 단위)
+  const subqCountRef = useRef<Record<string, number>>({})
+  const sourcesCountRef = useRef<Record<string, number>>({})
   const summaryCountRef = useRef<Record<string, number>>({})
 
-  // 출력 큐: “화면에 찍는 텍스트”는 무조건 이 큐를 통해 순차 처리
+  // 버킷(버블) 초기화 여부: 헤더 1회 출력용
+  const bucketInitRef = useRef<Record<string, boolean>>({})
+
+  // 출력 큐(무조건 순차 출력)
   const printChainRef = useRef<Promise<void>>(Promise.resolve())
 
   useEffect(() => {
@@ -99,12 +103,18 @@ export default function ChatPage() {
     )
   }
 
-  // “순차 출력 보장”
-  function enqueuePrint(chatId: string, turnId: string, line: string, delayMs = LINE_DELAY_MS) {
+  // 줄 단위 순차 출력(큐 보장)
+  function enqueuePrint(chatId: string, turnId: string, text: string, delayMs = LINE_DELAY_MS) {
     printChainRef.current = printChainRef.current.then(async () => {
-      appendAssistantText(chatId, turnId, line)
+      appendAssistantText(chatId, turnId, text)
       await sleep(delayMs)
     })
+  }
+
+  function enqueueLines(chatId: string, turnId: string, lines: string[], delayMs = LINE_DELAY_MS) {
+    for (const line of lines) {
+      enqueuePrint(chatId, turnId, line + "\n", delayMs)
+    }
   }
 
   function addUserMessage(chatId: string, content: string) {
@@ -116,9 +126,47 @@ export default function ChatPage() {
     setIsLoading(false)
   }
 
+  // ===== 버킷(별도 버블) 유틸 =====
+  function bucketTurnId(baseTurnId: string, bucket: Bucket) {
+    return `${baseTurnId}:${bucket}`
+  }
+
+  function bucketHeader(bucket: Bucket) {
+    if (bucket === "final") return "최종 검색어"
+    if (bucket === "subq") return "서브쿼리"
+    if (bucket === "sources") return "출처(URL)"
+    return "문서 요약"
+  }
+
+  function ensureBucket(chatId: string, baseTurnId: string, bucket: Bucket) {
+    const bId = bucketTurnId(baseTurnId, bucket)
+    const key = `${chatId}|${bId}`
+    if (!bucketInitRef.current[key]) {
+      ensureAssistantMessage(chatId, bId, "")
+      enqueueLines(chatId, bId, [bucketHeader(bucket), "-----------------"], 0)
+      bucketInitRef.current[key] = true
+    }
+    return bId
+  }
+
+  function setBucketStatus(chatId: string, baseTurnId: string, bucket: Bucket, text: string) {
+    const bId = ensureBucket(chatId, baseTurnId, bucket)
+    setAssistantStatus(chatId, bId, text)
+  }
+
+  // node_update 메시지를 어떤 버킷에 붙일지 결정(문구는 stream.py에서 온 그대로)
+  function routeNodeUpdateToBucket(msg: string): Bucket | null {
+    // stream.py 문구 기준으로 매칭 (원하면 더 촘촘하게 조정 가능)
+    if (msg.includes("서브쿼리")) return "subq"
+    if (msg.includes("검색")) return "sources"
+    if (msg.includes("문서 요약") || msg.includes("요약")) return "summary"
+    if (msg.includes("최종 질문") || msg.includes("최종 검색어") || msg.includes("확정")) return "final"
+
+    // 그 외(질문 분석/추가 질문/답변 판정 등)는 기본 버블에서만 표시
+    return null
+  }
+
   async function startStream(chatId: string, turnId: string, params: any) {
-    console.log("[REQ_BODY]", params)
-    
     const res = await fetch(API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -136,125 +184,126 @@ export default function ChatPage() {
 
     try {
       await readSseStream(res, (evt) => {
-        console.log("[SSE]", evt.event, evt.data)
-
         if (evt.event === "start") {
           setAssistantStatus(chatId, turnId, evt.data?.message ?? "시작")
           return
         }
+
         if (evt.event === "node_update") {
-          const msg = evt.data?.message ?? ""
-          if (msg) setAssistantStatus(chatId, turnId, msg)
+          const msg = (evt.data?.message ?? "").toString().trim()
+          if (!msg) return
+
+          // 기본 버블도 상태 갱신(원하면 유지)
+          setAssistantStatus(chatId, turnId, msg)
+
+          // 버킷별 statusText에도 동일 문구 표시
+          const b = routeNodeUpdateToBucket(msg)
+          if (b) setBucketStatus(chatId, turnId, b, msg)
+
           return
         }
+
         if (evt.event === "error") {
           statusStickyRef.current = true
           setAssistantStatus(chatId, turnId, `에러: ${evt.data?.message ?? "unknown"}`)
+          // 에러는 전체 UX 상단에 고정하고 싶으면 여기서 버킷 상태도 같이 고정 가능
+          releaseSendLock()
           return
         }
+
         if (evt.event === "end") {
           ended = true
           releaseSendLock()
           return
         }
 
-        // 백엔드 handler 기준: event_name은 "llm"
         if (evt.event !== "llm") return
 
         const data = evt.data || {}
         const t = data.type
 
-        // 0) 잘못된 입력 안내
+        // ===== (1) 기본 버블(turnId): 에러/추가질문/안내 =====
         if (t === "error_messages") {
-          if (Array.isArray(data.content)) {
-            for (const msg of data.content) {
-              if (typeof msg === "string" && msg.trim()) enqueuePrint(chatId, turnId, msg.trim() + "\n")
-            }
-          } else if (typeof data.content === "string" && data.content.trim()) {
-            enqueuePrint(chatId, turnId, data.content.trim() + "\n")
+          const c = data.content
+          if (Array.isArray(c)) {
+            const lines = c.filter((x: any) => typeof x === "string" && x.trim()).map((x: string) => x.trim())
+            if (lines.length) enqueueLines(chatId, turnId, lines, 0)
+          } else if (typeof c === "string" && c.trim()) {
+            enqueueLines(chatId, turnId, [c.trim()], 0)
           }
           return
         }
 
-        // 1) 안내 멘트
         if (t === "qna_ment") {
-          const ment = (data.content ?? "").toString()
-          if (ment.trim()) enqueuePrint(chatId, turnId, ment.trim() + "\n")
+          const ment = (data.content ?? "").toString().trim()
+          if (ment) enqueueLines(chatId, turnId, [ment], 0)
           return
         }
 
-        // 2) 추가질문 (서버가 한 개씩 보내는 전제)
-        // {"type":"addition_questions","questions":"질문1"} 가 여러 번 옴
         if (t === "addition_questions") {
-          const q = data.questions
-          if (typeof q === "string" && q.trim()) {
-            // pending이 아직 없으면 생성
-            if (!pendingClarifyRef.current) {
-              // IMPORTANT: "원 질문"은 1차 요청 params.question 기준으로 저장
-              pendingClarifyRef.current = {
-                originalQuestion: params.question,
-                questions: [],
-              }
+          const q = (data.questions ?? "").toString().trim()
+          if (!q) return
+
+          if (!pendingClarifyRef.current) {
+            pendingClarifyRef.current = {
+              originalQuestion: params.question,
+              questions: [],
             }
-
-            pendingClarifyRef.current.questions.push(q.trim())
-            const idx = pendingClarifyRef.current.questions.length
-
-            // 순차 출력
-            enqueuePrint(chatId, turnId, `${idx}) ${q.trim()}\n`)
           }
+          pendingClarifyRef.current.questions.push(q)
+          const idx = pendingClarifyRef.current.questions.length
+          enqueueLines(chatId, turnId, [`${idx}) ${q}`], 0)
           return
         }
 
-        // 3) 최종 질문
+        // ===== (2) 최종 검색어: final 버블 =====
         if (t === "final_question") {
           const fq = (data.question ?? "").toString().trim()
-          if (DEBUG_SHOW_INTERNAL && fq) {
-            enqueuePrint(chatId, turnId, `최종 검색어 : ${fq}\n`, 0)
-          }
-          // 최종 확정이면 pending 종료
+          if (!fq) return
+
+          const bId = ensureBucket(chatId, turnId, "final")
+          enqueueLines(chatId, bId, [fq], 0)
+
           pendingClarifyRef.current = null
           return
         }
 
-        // 4) 서브쿼리
+        // ===== (3) 서브쿼리: subq 버블 =====
         if (t === "subqueries") {
           const q = (data.query ?? "").toString().trim()
-          if (q) {
-            // turnId별 번호 증가
-            if (subqCountRef.current[turnId] == null) subqCountRef.current[turnId] = 0
-            subqCountRef.current[turnId] += 1
-        
-            // 순차 출력 (1) ... 2) ... 형태
-            enqueuePrint(chatId, turnId, `${subqCountRef.current[turnId]}) ${q}\n`)
-          }
+          if (!q) return
+
+          const bId = ensureBucket(chatId, turnId, "subq")
+
+          if (subqCountRef.current[turnId] == null) subqCountRef.current[turnId] = 0
+          subqCountRef.current[turnId] += 1
+          const idx = subqCountRef.current[turnId]
+
+          enqueueLines(chatId, bId, [`${idx}) ${q}`], 0)
           return
         }
 
-        // 5) 검색 결과 1건 (URL)
+        // ===== (4) URL(출처): sources 버블 =====
         if (t === "search_results") {
-          const r = (data.result && typeof data.result === "object") ? data.result : data
+          const r = data.result && typeof data.result === "object" ? data.result : data
           const title = (r.title ?? "").toString().trim()
           const url = (r.url ?? "").toString().trim()
-          console.log("[SEARCH_PAYLOAD]", { title, url, raw: data })
+          if (!url) return
 
-          if (url) {
-            // turnId별 번호 증가
-            if (searchCountRef.current[turnId] == null) searchCountRef.current[turnId] = 0
-            searchCountRef.current[turnId] += 1
+          const bId = ensureBucket(chatId, turnId, "sources")
 
-            const idx = searchCountRef.current[turnId]
-      
-            // 클릭 가능한 링크: HTML 문자열로 출력
-            // (MessageList가 HTML 렌더링을 지원하지 않으면 아래 "대안" 참고)
-            const label = title || url
-            enqueuePrint(chatId, turnId, `${idx}) [${label}](${url})\n`)}
+          if (sourcesCountRef.current[turnId] == null) sourcesCountRef.current[turnId] = 0
+          sourcesCountRef.current[turnId] += 1
+          const idx = sourcesCountRef.current[turnId]
+
+          const label = title || url
+          enqueueLines(chatId, bId, [`${idx}) [${label}](${url})`], 0)
           return
         }
 
-        // 6) 문서 요약 1건 (doc_summary)
+        // ===== (5) 문서 요약: summary 버블 하나에 문서별 섹션 누적(줄 단위) =====
         if (t === "doc_summary") {
-          const doc = (data.doc && typeof data.doc === "object") ? data.doc : null
+          const doc = data.doc && typeof data.doc === "object" ? data.doc : null
           if (!doc) return
 
           const title = (doc.title ?? "").toString().trim()
@@ -263,33 +312,38 @@ export default function ChatPage() {
           const bullets = Array.isArray(doc.bullets) ? doc.bullets : []
           const notes = (doc.reliability_notes ?? "").toString().trim()
 
-          // turnId별 요약 번호 증가
+          const bId = ensureBucket(chatId, turnId, "summary")
+
           if (summaryCountRef.current[turnId] == null) summaryCountRef.current[turnId] = 0
           summaryCountRef.current[turnId] += 1
           const idx = summaryCountRef.current[turnId]
 
-          // 출력 포맷(마크다운)
-          // - 제목(링크)
-          // - 요약
-          // - bullet
-          // - 주의사항(있으면)
-          let out = `\n### 요약 ${idx}) ${title || "문서 요약"}\n`
-          if (url) out += `출처: [${title || url}](${url})\n\n`
+          const lines: string[] = []
+          lines.push("") // 섹션 분리
+          lines.push(`[문서 ${idx}]`)
 
-          if (summary) out += `${summary}\n\n`
+          if (url) {
+            const label = title || url
+            lines.push(`출처: [${label}](${url})`)
+          } else if (title) {
+            lines.push(`출처: ${title}`)
+          }
+
+          if (summary) {
+            for (const sLine of summary.split("\n")) {
+              if (sLine.trim()) lines.push(sLine.trim())
+            }
+          }
 
           if (bullets.length > 0) {
             for (const b of bullets) {
-              if (typeof b === "string" && b.trim()) out += `- ${b.trim()}\n`
+              if (typeof b === "string" && b.trim()) lines.push(`- ${b.trim()}`)
             }
-            out += `\n`
           }
 
-          if (notes) {
-            out += `주의: ${notes}\n\n`
-          }
+          if (notes) lines.push(`주의: ${notes}`)
 
-          enqueuePrint(chatId, turnId, out)
+          enqueueLines(chatId, bId, lines, 0)
           return
         }
       })
@@ -317,25 +371,26 @@ export default function ChatPage() {
 
     const turnId = newId()
     subqCountRef.current[turnId] = 0
+    sourcesCountRef.current[turnId] = 0
+    summaryCountRef.current[turnId] = 0
+
+    // 기본 assistant 버블(질문 분석/추가질문/에러용)
     ensureAssistantMessage(chat.id, turnId, "질문분석중...")
 
     const pending = pendingClarifyRef.current
 
-    // ===== 2차 요청 모드: 추가질문이 떠있는 상태에서 사용자 입력이 들어온 경우 =====
+    // 2차 요청(추가질문 답변)
     if (pending && pending.questions.length) {
-      // 너 의도: 3개 질문 중 1개만 답해도 서버가 판단하고, 부족하면 재질문 다시 내려줌
-      // 따라서 "한 번 입력될 때마다" 바로 2차 요청을 보낸다.
       pendingClarifyRef.current = null
-
       await startStream(chat.id, turnId, {
-        question: pending.originalQuestion,                 // 원 질문
-        addition_questions: pending.questions,              // 추가질문 리스트
-        addition_questions_answers: [trimmed],              // 사용자 답변 (1개여도 리스트)
+        question: pending.originalQuestion,
+        addition_questions: pending.questions,
+        addition_questions_answers: [trimmed],
       })
       return
     }
 
-    // ===== 1차 요청 모드 =====
+    // 1차 요청
     await startStream(chat.id, turnId, {
       question: trimmed,
       addition_questions: null,
