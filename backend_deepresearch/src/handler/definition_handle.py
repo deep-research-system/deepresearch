@@ -58,6 +58,8 @@ def handle_node_update(node: str, update: Dict[str, Any]) -> Iterable[Event]:
             yield ("llm", {"type": "search_results","result": {
                 "title": result.get("title"),
                 "url": result.get("url")}})
+            print("DEBUG_TITLE:", result.get("title"))
+            print("DEBUG_URL:", result.get("url"))
         return
     
     elif node == "summary":

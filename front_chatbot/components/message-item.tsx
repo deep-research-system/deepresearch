@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 import type { Message } from "@/lib/chat-store"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import remarkBreaks from "remark-breaks"
 import React from "react"
 
 export function MessageItem({ message }: { message: Message }) {
@@ -29,7 +30,7 @@ export function MessageItem({ message }: { message: Message }) {
 
           <div className="prose prose-neutral dark:prose-invert prose-lg max-w-none">
             <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
+              remarkPlugins={[remarkGfm, remarkBreaks]}
               components={{
                 a: ({ node, ...props }) => (
                   <a {...props} target="_blank" rel="noreferrer noopener" className="underline" />

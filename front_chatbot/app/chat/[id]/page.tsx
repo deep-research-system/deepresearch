@@ -284,6 +284,7 @@ export default function ChatPage() {
         }
 
         // ===== (4) URL(출처): sources 버블 =====
+        // 요구사항: "제목" 한 줄 + "URL(클릭)" 한 줄로 출력
         if (t === "search_results") {
           const r = data.result && typeof data.result === "object" ? data.result : data
           const title = (r.title ?? "").toString().trim()
@@ -296,8 +297,10 @@ export default function ChatPage() {
           sourcesCountRef.current[turnId] += 1
           const idx = sourcesCountRef.current[turnId]
 
-          const label = title || url
-          enqueueLines(chatId, bId, [`${idx}) [${label}](${url})`], 0)
+          const safeTitle = title || "(제목 없음)"
+          // 1) 제목은 텍스트로
+          // 2) URL은 화면에 URL 그대로 보이되 클릭 가능하게 (Markdown 링크)
+          enqueueLines(chatId, bId, [`${idx}) ${safeTitle}`, `[${url}](${url})`], 0)
           return
         }
 
