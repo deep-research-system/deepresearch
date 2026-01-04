@@ -1,12 +1,10 @@
 # src/nodes/search.py
 from __future__ import annotations
-
 import os, asyncio
-from typing import Any, TypedDict, List
+from typing import Any, List
 from tavily import AsyncTavilyClient
 from dotenv import load_dotenv
 from src.state import SubqueryState, SearchState, SearchResult
- 
 load_dotenv()
 
 
@@ -20,7 +18,7 @@ def _get_tavily_client() -> AsyncTavilyClient:
 
 async def _tavily_search_many(
     queries: List[str],
-    max_results: int = 3,
+    max_results: int = 1,
     topic: str = "general",
 ) -> List[dict[str, Any]]:
     """
@@ -56,6 +54,23 @@ async def _tavily_search_many(
             out.append(resp)
     return out
 
+def normalize_item(item: Any, query: str) -> SearchResult | None:
+    if not isinstance(item, dict):
+        return None
+    url = (item.get("url") or "").strip()
+    if not url:
+        return None
+    score_val = item.get("score")
+    score = score_val if isinstance(score_val, (int, float)) else None
+    snippet = item.get("content") or item.get("snippet") or item.get("description") or None
+    return {
+        "query": str(query or ""),
+        "title": str(item.get("title") or ""),
+        "url": url,
+        "snippet": snippet,
+        "score": score,
+        "source": "tavily",
+    }
 
 async def search_node(state: SubqueryState) -> SearchState:
     """ LangGraph Search 노드 (Search-only)
@@ -64,52 +79,33 @@ async def search_node(state: SubqueryState) -> SearchState:
     - URL 기준 dedupe (첫 등장 query 유지)
     """
     subqueries = state.get("subqueries") or []
-    if not isinstance(subqueries, list):
-        subqueries = []
-
     # 문자열 쿼리, 앞뒤 공백제거
     queries = [q.strip() for q in subqueries if isinstance(q, str) and q.strip()]
     if not queries:
         return {"search_results": []}
 
     # 1) 병렬 검색
-    responses = await _tavily_search_many(queries, max_results=3, topic="general")
+    responses = await _tavily_search_many(queries, max_results=1, topic="general")
 
     # 2) 같은 url은 한번만 저장, 먼저 등장한 쿼리결과 유지지
     unique_by_url: dict[str, SearchResult] = {}
 
     for resp in responses:
-        q = resp.get("query")
+        q = resp.get("query", "")
         tavily_results   = resp.get("results") or []
         if not isinstance(tavily_results, list):
             continue
 
         for item in tavily_results:
-            if not isinstance(item, dict):
+            ni = normalize_item(item, q)
+            if ni is None:
                 continue
 
-            url = str(item.get("url") or "").strip()
-            if not url:
-                continue
-
+            url = ni["url"]
             # dedupe: URL이 이미 있으면 스킵(첫 등장 query 유지)
             if url in unique_by_url:
                 continue
-            #  URL결과를 SearchResult로 변환
-            sr: SearchResult = {
-                "query": str(q or ""),
-                "title": str(item.get("title") or ""),
-                "url": url,
-                # Tavily 결과의 content/snippet/description 중 가능한 걸 snippet로
-                "snippet": (
-                    item.get("content")
-                    or item.get("snippet")
-                    or item.get("description")
-                    or None
-                ),
-                "score": item.get("score") if isinstance(item.get("score"), (int, float)) else None,
-                "source": "tavily",
-            }
-            unique_by_url[url] = sr
+
+            unique_by_url[url] = ni
 
     return {"search_results": list(unique_by_url.values())}
