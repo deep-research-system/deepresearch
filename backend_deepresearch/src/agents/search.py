@@ -1,9 +1,8 @@
 # src/nodes/search.py
-from typing import List, Dict, Any
 from tavily import AsyncTavilyClient
 import asyncio
 from configuration import settings
-from src.state import SubqueryState, SearchState, SearchResult
+from src.state import SubqueryState, SearchState
 
 
 tavily = AsyncTavilyClient(api_key=settings.tavily)

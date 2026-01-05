@@ -42,6 +42,9 @@ class SearchState(TypedDict, total=False):
 
 
 class DocSummary(TypedDict):
+    """
+    검색별 문서요약(낱개)
+    """
     query: Annotated[str, "검색에 사용된 서브쿼리"]
     title: Annotated[str, "원본 문서 제목"]
     url: Annotated[str, "원본 문서 URL"]
@@ -52,9 +55,10 @@ class DocSummary(TypedDict):
     reliability_notes: Annotated[Optional[str], "신뢰도 관련 주의사항"]
 
 class SummaryState(TypedDict, total=False):
+    """
+    문서 요약 묶음
+    """
     doc_summaries: Annotated[List[DocSummary], "문서별 요약 결과 리스트"]
-    # 아래는 나중(통합요약/보고서) 단계에서 사용
-    integrated_summary: Annotated[str, "통합 요약(최종 보고서 초안)"]
     
     
 # graph.py용
