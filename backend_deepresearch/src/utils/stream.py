@@ -33,17 +33,17 @@ def _status_message_for(node: str, update: Dict[str, Any]) -> str:
         if "error_messages" in update:
             return "입력값 검증중..."
         if update.get("need_addition_questions") is True:
-            return "추가 질문 생성중..."
+            return "추가 질문 생성"
         if update.get("need_addition_questions") is False:
-            return "최종 질문 확정중..."
+            return "최종 질문 확정"
         return "질문 분석중..."
     
     
     if node == "clarify_answer":
         if update.get("answers_sufficient") is True:
-            return "최종 질문 확정중..."
+            return "최종 질문 확정"
         if update.get("answers_sufficient") is False:
-            return "추가 답변 확인중..."
+            return "추가 답변 생성"
         return "답변 판정중..."
     
     if node == "subquery":
@@ -58,7 +58,7 @@ def _status_message_for(node: str, update: Dict[str, Any]) -> str:
             n = len(update.get("search_results") or [])
             if n > 0:
                 return f"검색 결과 {n}건 수집 완료"
-            return "검색중..."
+        return "검색중..."
 
     if node == "summary":
         ds = update.get("doc_summary")
