@@ -35,7 +35,7 @@ async def summary_node(state: SearchState) -> SummaryState:
         url = sr.get("url")
         source = sr.get("source")
         score = sr.get("score")  # Optional[float]
-        snippet = sr.get("snippet")          # 개발과정은 snippet 실제는 content로로
+        snippet = sr.get("snippet")          # 개발과정은 snippet 실제는 content로
     
         # 문서 1개 기준으로 LLM 입력을 문자열로 구성
         user_input = f"""

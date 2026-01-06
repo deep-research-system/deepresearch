@@ -51,8 +51,7 @@ class DocSummary(TypedDict):
     source: Annotated[str, "문서 수집 출처"]
     score: Annotated[Optional[float], "검색 엔진 relevance 점수"]
     summary: Annotated[str, "문서 요약 본문"]
-    bullets: Annotated[List[str], "문서 핵심 포인트 요약"]
-    reliability_notes: Annotated[Optional[str], "신뢰도 관련 주의사항"]
+
 
 class SummaryState(TypedDict, total=False):
     """
