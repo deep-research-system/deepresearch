@@ -4,6 +4,7 @@ from src.agents.clarify import clarify_first_question, clarify_add_answer
 from src.agents.subquery import subquery
 from src.agents.search import search_node
 from src.agents.summary import summary_node
+from src.agents.final_report import final_report_node
 
 def start_to(state: ResearchState) -> str:
     # 2차 요청: 답변이 있으면 바로 답변판정 노드로
@@ -35,6 +36,7 @@ def build_graph():
     graph.add_node("subquery", subquery)
     graph.add_node("search", search_node)
     graph.add_node("summary", summary_node)
+    graph.add_node("final_report", final_report_node)
 
     graph.set_entry_point("start")
 
@@ -64,5 +66,6 @@ def build_graph():
 
     graph.add_edge("subquery", "search")
     graph.add_edge("search", "summary")
-    graph.add_edge("summary", END)
+    graph.add_edge("summary", "final_report")
+    graph.add_edge("final_report", END)
     return graph.compile()

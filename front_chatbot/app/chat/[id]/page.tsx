@@ -29,7 +29,7 @@ function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
 
-type Bucket = "final" | "subq" | "sources" | "summary"
+type Bucket = "final" | "subq" | "sources" | "summary"  | "report"
 
 export default function ChatPage() {
   const { id } = useParams<{ id: string }>()
@@ -135,7 +135,8 @@ export default function ChatPage() {
     if (bucket === "final") return "최종 검색어"
     if (bucket === "subq") return "서브쿼리"
     if (bucket === "sources") return "출처(URL)"
-    return "문서 요약"
+    if (bucket === "summary") return "문서 요약"
+    return "최종 보고서"
   }
 
   function ensureBucket(chatId: string, baseTurnId: string, bucket: Bucket) {
@@ -160,6 +161,7 @@ export default function ChatPage() {
     if (msg.includes("서브쿼리")) return "subq"
     if (msg.includes("검색")) return "sources"
     if (msg.includes("문서 요약") || msg.includes("요약")) return "summary"
+    if (msg.includes("최종 보고서")) return "report"
     if (msg.includes("최종 질문") || msg.includes("최종 검색어") || msg.includes("확정")) return "final"
 
     // 그 외(질문 분석/추가 질문/답변 판정 등)는 기본 버블에서만 표시
@@ -347,6 +349,16 @@ export default function ChatPage() {
           if (notes) lines.push(`주의: ${notes}`)
 
           enqueueLines(chatId, bId, lines, 0)
+          return
+        }
+        // ===== (6) 최종 보고서: report 버블 =====
+        if (t === "final_report") {
+          const report = (data.content ?? "").toString()
+          if (!report.trim()) return
+        
+          const bId = ensureBucket(chatId, turnId, "report")
+          // 보고서는 줄 단위로 나누지 말고 통째로 넣는 것이 Markdown 렌더링에 유리
+          enqueuePrint(chatId, bId, report + "\n", 0)
           return
         }
       })

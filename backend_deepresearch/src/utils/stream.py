@@ -65,9 +65,20 @@ def _status_message_for(node: str, update: Dict[str, Any]) -> str:
         if ds:
             title = ds.get("title")
             return f"문서 요약 완료: {title}" if title else "문서 요약 완료"
+
+        items = update.get("doc_summaries")
+        if len(items) > 0:
+            return f"문서 요약 {len(items)}건 생성 완료"
         return "문서 요약중..."
     
+    if node == "final_report":
+        if "final_report" in update:
+            return "최종 보고서 생성 완료"
+        return "최종 보고서 작성중..."
+    
     return f"{node} 처리중..."
+
+
 
 
 def start_graph(graph: Any, state: Dict[str, Any]) -> StreamingResponse:

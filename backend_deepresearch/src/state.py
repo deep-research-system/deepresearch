@@ -59,7 +59,13 @@ class SummaryState(TypedDict, total=False):
     """
     doc_summaries: Annotated[List[DocSummary], "문서별 요약 결과 리스트"]
     
+class FinalReportState(TypedDict, total=False):
+    """
+    최종 보고서(Markdown) 결과
+    """
+    final_report: Annotated[str, "최종 보고서(Markdown)"]
+
     
 # graph.py용
-class ResearchState(BaseState, ClarifyState, SubqueryState, SearchState, SummaryState, total=False):
+class ResearchState(BaseState, ClarifyState, SubqueryState, SearchState, SummaryState, FinalReportState, total=False):
     pass
