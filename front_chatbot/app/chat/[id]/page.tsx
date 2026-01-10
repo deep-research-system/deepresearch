@@ -29,7 +29,7 @@ function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
 
-type Bucket = "final" | "subq" | "sources" | "summary"  | "report"
+type Bucket = "final" | "subq" | "sources" | "summary" | "report"
 
 export default function ChatPage() {
   const { id } = useParams<{ id: string }>()
@@ -75,10 +75,7 @@ export default function ChatPage() {
     updateChatMessages(chatId, (prev) => {
       const exists = prev.some((m: any) => m.role === "assistant" && m.turnId === turnId)
       if (exists) return prev
-      return [
-        ...prev,
-        { id: newId(), role: "assistant", turnId, statusText: initialStatus, content: "", createdAt: now() },
-      ]
+      return [...prev, { id: newId(), role: "assistant", turnId, statusText: initialStatus, content: "", createdAt: now() }]
     })
   }
 
@@ -103,7 +100,7 @@ export default function ChatPage() {
     )
   }
 
-  // 줄 단위 순차 출력(큐 보장)
+  // 순차 출력(큐 보장)
   function enqueuePrint(chatId: string, turnId: string, text: string, delayMs = LINE_DELAY_MS) {
     printChainRef.current = printChainRef.current.then(async () => {
       appendAssistantText(chatId, turnId, text)
@@ -155,16 +152,12 @@ export default function ChatPage() {
     setAssistantStatus(chatId, bId, text)
   }
 
-  // node_update 메시지를 어떤 버킷에 붙일지 결정(문구는 stream.py에서 온 그대로)
   function routeNodeUpdateToBucket(msg: string): Bucket | null {
-    // stream.py 문구 기준으로 매칭 (원하면 더 촘촘하게 조정 가능)
     if (msg.includes("서브쿼리")) return "subq"
     if (msg.includes("검색")) return "sources"
     if (msg.includes("문서 요약") || msg.includes("요약")) return "summary"
     if (msg.includes("최종 보고서")) return "report"
     if (msg.includes("최종 질문") || msg.includes("최종 검색어") || msg.includes("확정")) return "final"
-
-    // 그 외(질문 분석/추가 질문/답변 판정 등)는 기본 버블에서만 표시
     return null
   }
 
@@ -195,10 +188,8 @@ export default function ChatPage() {
           const msg = (evt.data?.message ?? "").toString().trim()
           if (!msg) return
 
-          // 기본 버블도 상태 갱신(원하면 유지)
           setAssistantStatus(chatId, turnId, msg)
 
-          // 버킷별 statusText에도 동일 문구 표시
           const b = routeNodeUpdateToBucket(msg)
           if (b) setBucketStatus(chatId, turnId, b, msg)
 
@@ -208,7 +199,6 @@ export default function ChatPage() {
         if (evt.event === "error") {
           statusStickyRef.current = true
           setAssistantStatus(chatId, turnId, `에러: ${evt.data?.message ?? "unknown"}`)
-          // 에러는 전체 UX 상단에 고정하고 싶으면 여기서 버킷 상태도 같이 고정 가능
           releaseSendLock()
           return
         }
@@ -224,7 +214,7 @@ export default function ChatPage() {
         const data = evt.data || {}
         const t = data.type
 
-        // ===== (1) 기본 버블(turnId): 에러/추가질문/안내 =====
+        // (1) 기본 버블(turnId): 에러/추가질문/안내
         if (t === "error_messages") {
           const c = data.content
           if (Array.isArray(c)) {
@@ -258,7 +248,7 @@ export default function ChatPage() {
           return
         }
 
-        // ===== (2) 최종 검색어: final 버블 =====
+        // (2) 최종 검색어: final 버블
         if (t === "final_question") {
           const fq = (data.question ?? "").toString().trim()
           if (!fq) return
@@ -270,7 +260,7 @@ export default function ChatPage() {
           return
         }
 
-        // ===== (3) 서브쿼리: subq 버블 =====
+        // (3) 서브쿼리: subq 버블
         if (t === "subqueries") {
           const q = (data.query ?? "").toString().trim()
           if (!q) return
@@ -285,8 +275,7 @@ export default function ChatPage() {
           return
         }
 
-        // ===== (4) URL(출처): sources 버블 =====
-        // 요구사항: "제목" 한 줄 + "URL(클릭)" 한 줄로 출력
+        // (4) URL(출처): sources 버블
         if (t === "search_results") {
           const r = data.result && typeof data.result === "object" ? data.result : data
           const title = (r.title ?? "").toString().trim()
@@ -300,20 +289,18 @@ export default function ChatPage() {
           const idx = sourcesCountRef.current[turnId]
 
           const safeTitle = title || "(제목 없음)"
-          // 1) 제목은 텍스트로
-          // 2) URL은 화면에 URL 그대로 보이되 클릭 가능하게 (Markdown 링크)
           enqueueLines(chatId, bId, [`${idx}) ${safeTitle}`, `[${url}](${url})`], 0)
           return
         }
 
-        // ===== (5) 문서 요약: summary 버블 하나에 문서별 섹션 누적(줄 단위) =====
+        // (5) 문서 요약: summary 버블 (마크다운 구조 유지 위해 "통째로" 출력)
         if (t === "doc_summary") {
           const doc = data.doc && typeof data.doc === "object" ? data.doc : null
           if (!doc) return
 
           const title = (doc.title ?? "").toString().trim()
           const url = (doc.url ?? "").toString().trim()
-          const summary = (doc.summary ?? "").toString().trim()
+          const summary = (doc.summary ?? "").toString() // trim 금지: 마크다운 공백/개행 보존
           const bullets = Array.isArray(doc.bullets) ? doc.bullets : []
           const notes = (doc.reliability_notes ?? "").toString().trim()
 
@@ -323,41 +310,42 @@ export default function ChatPage() {
           summaryCountRef.current[turnId] += 1
           const idx = summaryCountRef.current[turnId]
 
-          const lines: string[] = []
-          lines.push("") // 섹션 분리
-          lines.push(`[문서 ${idx}]`)
+          let block = `\n[문서 ${idx}]\n`
 
           if (url) {
             const label = title || url
-            lines.push(`출처: [${label}](${url})`)
+            block += `출처: [${label}](${url})\n\n`
           } else if (title) {
-            lines.push(`출처: ${title}`)
+            block += `출처: ${title}\n\n`
           }
 
-          if (summary) {
-            for (const sLine of summary.split("\n")) {
-              if (sLine.trim()) lines.push(sLine.trim())
-            }
+          // 핵심: summary를 split/trim 하지 말고 그대로 붙인다(마크다운 블록 유지)
+          if (summary.trim()) {
+            block += summary.trimEnd() + "\n"
           }
 
+          // bullets/notes를 쓰는 구조가 아니라면 아래는 제거 가능(현재 프롬프트는 summary 안에 이미 포함)
           if (bullets.length > 0) {
+            block += `\n`
             for (const b of bullets) {
-              if (typeof b === "string" && b.trim()) lines.push(`- ${b.trim()}`)
+              if (typeof b === "string" && b.trim()) block += `- ${b.trim()}\n`
             }
           }
 
-          if (notes) lines.push(`주의: ${notes}`)
+          if (notes) block += `\n주의: ${notes}\n`
 
-          enqueueLines(chatId, bId, lines, 0)
+          block += `\n`
+
+          enqueuePrint(chatId, bId, block, 0)
           return
         }
-        // ===== (6) 최종 보고서: report 버블 =====
+
+        // (6) 최종 보고서: report 버블
         if (t === "final_report") {
           const report = (data.content ?? "").toString()
           if (!report.trim()) return
-        
+
           const bId = ensureBucket(chatId, turnId, "report")
-          // 보고서는 줄 단위로 나누지 말고 통째로 넣는 것이 Markdown 렌더링에 유리
           enqueuePrint(chatId, bId, report + "\n", 0)
           return
         }
@@ -389,12 +377,10 @@ export default function ChatPage() {
     sourcesCountRef.current[turnId] = 0
     summaryCountRef.current[turnId] = 0
 
-    // 기본 assistant 버블(질문 분석/추가질문/에러용)
     ensureAssistantMessage(chat.id, turnId, "질문분석중...")
 
     const pending = pendingClarifyRef.current
 
-    // 2차 요청(추가질문 답변)
     if (pending && pending.questions.length) {
       pendingClarifyRef.current = null
       await startStream(chat.id, turnId, {
@@ -405,7 +391,6 @@ export default function ChatPage() {
       return
     }
 
-    // 1차 요청
     await startStream(chat.id, turnId, {
       question: trimmed,
       addition_questions: null,
@@ -413,7 +398,6 @@ export default function ChatPage() {
     })
   }
 
-  // 홈에서 넘어온 q= 자동 실행 유지
   const autoRanRef = useRef(false)
   useEffect(() => {
     if (!chat) return

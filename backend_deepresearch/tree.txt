@@ -7,55 +7,32 @@ C:.
 ¦¢  configuration.py
 ¦¢  requirements.txt
 ¦¢  server.py
+¦¢  test.py
 ¦¢  tree.txt
 ¦¢  
-¦§¦¡src
-¦¢  ¦¢  graph.py
-¦¢  ¦¢  state.py
-¦¢  ¦¢  __init__.py
-¦¢  ¦¢  
-¦¢  ¦§¦¡agents
-¦¢  ¦¢  ¦¢  clarify.py
-¦¢  ¦¢  ¦¢  subquery.py
-¦¢  ¦¢  ¦¢  supervisor.py
-¦¢  ¦¢  ¦¢  __init__.py
-¦¢  ¦¢  ¦¢  
-¦¢  ¦¢  ¦¦¦¡__pycache__
-¦¢  ¦¢          clarify.cpython-311.pyc
-¦¢  ¦¢          subquery.cpython-311.pyc
-¦¢  ¦¢          __init__.cpython-311.pyc
-¦¢  ¦¢          
-¦¢  ¦§¦¡handler
-¦¢  ¦¢  ¦¢  clarify.py
-¦¢  ¦¢  ¦¢  __init__.py
-¦¢  ¦¢  ¦¢  
-¦¢  ¦¢  ¦¦¦¡__pycache__
-¦¢  ¦¢          clarify.cpython-311.pyc
-¦¢  ¦¢          subquery.cpython-311.pyc
-¦¢  ¦¢          __init__.cpython-311.pyc
-¦¢  ¦¢          
-¦¢  ¦§¦¡prompts
-¦¢  ¦¢  ¦¢  prompts.py
-¦¢  ¦¢  ¦¢  __init__.py
-¦¢  ¦¢  ¦¢  
-¦¢  ¦¢  ¦¦¦¡__pycache__
-¦¢  ¦¢          prompts.cpython-311.pyc
-¦¢  ¦¢          __init__.cpython-311.pyc
-¦¢  ¦¢          
-¦¢  ¦§¦¡utils
-¦¢  ¦¢  ¦¢  stream.py
-¦¢  ¦¢  ¦¢  __init__.py
-¦¢  ¦¢  ¦¢  
-¦¢  ¦¢  ¦¦¦¡__pycache__
-¦¢  ¦¢          stream.cpython-311.pyc
-¦¢  ¦¢          __init__.cpython-311.pyc
-¦¢  ¦¢          
-¦¢  ¦¦¦¡__pycache__
-¦¢          graph.cpython-311.pyc
-¦¢          state.cpython-311.pyc
-¦¢          __init__.cpython-311.pyc
-¦¢          
-¦¦¦¡__pycache__
-        configuration.cpython-311.pyc
-        server.cpython-311.pyc
-        
+¦¦¦¡src
+    ¦¢  graph.py
+    ¦¢  state.py
+    ¦¢  __init__.py
+    ¦¢  
+    ¦§¦¡agents
+    ¦¢      clarify.py
+    ¦¢      final_report.py
+    ¦¢      search.py
+    ¦¢      subquery.py
+    ¦¢      summary.py
+    ¦¢      supervisor.py
+    ¦¢      __init__.py
+    ¦¢      
+    ¦§¦¡handler
+    ¦¢      definition_handle.py
+    ¦¢      __init__.py
+    ¦¢      
+    ¦§¦¡prompts
+    ¦¢      prompts.py
+    ¦¢      __init__.py
+    ¦¢      
+    ¦¦¦¡utils
+            stream.py
+            __init__.py
+            

@@ -22,18 +22,10 @@ class SubqueryState(TypedDict, total = False):
     subqueries: Annotated[List[str], "웹검색용 질문들(서브쿼리)"]
 
 class SearchResult(TypedDict):
-    """
-    query: 쿼리이름
-    title: 제목
-    url: url
-    snippet: 짧은 요약문
-    score: 검색어 관련성 점수
-    source: 검색엔진
-    """
     query: str
     title: str
     url: str
-    snippet: str | None
+    content: str
     score: float | None
     source: str
 
