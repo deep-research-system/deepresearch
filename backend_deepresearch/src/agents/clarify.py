@@ -13,9 +13,7 @@ def llm_set():
         settings.llm_model,
         api_key=settings.openai,
         temperature=settings.temperature)
-llm = llm_set()
 
-### 여기까지 건들지말라고 밑으로만 생성하라고
 
 
 
@@ -26,26 +24,25 @@ def clarify_first_question(state: BaseState):
     """
     question = state.get("question")
 
+    llm = llm_set()
     llm_answer = llm.invoke([
         SystemMessage(content=clarify_question_prompt),
         HumanMessage(content=question)
     ])
-    llm_answer_raw = llm_answer.content
+    raw = llm_answer.content
+    llm_json = json.loads(raw)
 
-    try:
-        llm_json = json.loads(llm_answer_raw)
-    except:
-        return {"error_messages" : llm_answer_raw}
+    if llm_json.get("need_addition_questions") is True:
+        return{"need_addition_questions": True,
+                "qna_ment": llm_json.get("qna_ment"),
+                "addition_questions": llm_json.get("addition_questions")}
 
 
     if llm_json.get("need_addition_questions") is False:
         return{"need_addition_questions" :False,
-               "final_question" : llm_json["final_question"]}
+               "final_question" : llm_json.get("final_question")}
     
-    if llm_json.get("need_addition_questions") is True:
-        return {"need_addition_questions" : True,
-                "qna_ment" : llm_json["qna_ment"],
-                "addition_questions" : llm_json["addition_questions"]}
+
     
     
 
@@ -59,6 +56,7 @@ def clarify_add_answer(state: BaseState):
     addition_questions = state.get("addition_questions")
     addition_questions_answers = state.get("addition_questions_answers")
 
+    llm = llm_set()
     llm_add_answer= llm.invoke([
         SystemMessage(content=clarify_answer_judge_prompt),
         HumanMessage(content=f"원 질문: {question}\n추가질문: {addition_questions}\n사용자 답변: {addition_questions_answers}")])
