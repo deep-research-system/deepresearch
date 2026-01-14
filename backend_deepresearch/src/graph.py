@@ -69,3 +69,5 @@ def build_graph():
     graph.add_edge("summary", "final_report")
     graph.add_edge("final_report", END)
     return graph.compile()
+
+deep_research= build_graph()
